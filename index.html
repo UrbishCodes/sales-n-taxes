@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light" />
+  <meta name="description" content="Counter sales: reverse VAT and unit rate solver. Works offline." />
+  <title>Counter Sales</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Counter sales</h1>
+      <p class="conn">Reverse VAT and unit rate solver · works offline</p>
+    </div>
+    <button type="button" class="ghost" id="resetBtn">Reset</button>
+  </header>
+
+  <main class="layout">
+    <div class="col">
+      <section class="card" aria-labelledby="s1">
+        <h2 id="s1"><span class="num">1</span> Bill total</h2>
+        <label class="field">
+          <span>Total paid, incl. VAT (NPR)</span>
+          <input id="gross" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" placeholder="e.g. 7500" />
+        </label>
+        <label class="field">
+          <span>VAT %</span>
+          <input id="vat" type="number" inputmode="decimal" step="any" min="0" value="13" autocomplete="off" />
+        </label>
+        <div class="ledger">
+          <div><span>Taxable base</span><strong id="baseOut">—</strong></div>
+          <div><span>VAT amount</span><strong id="vatOut">—</strong></div>
+        </div>
+        <p class="formula" id="formula"></p>
+      </section>
+
+      <section class="card" aria-labelledby="s2">
+        <h2 id="s2"><span class="num">2</span> Item and standard rate</h2>
+        <label class="field">
+          <span>Item name (for the bill line)</span>
+          <input id="item" type="text" autocomplete="off" placeholder="e.g. Tab cover" />
+        </label>
+        <div class="field">
+          <span>Unit sold</span>
+          <div class="segmented" role="radiogroup" aria-label="Unit sold">
+            <button type="button" role="radio" data-unit="pcs" class="active" aria-checked="true">Pcs</button>
+            <button type="button" role="radio" data-unit="doz" aria-checked="false">Dozen</button>
+            <button type="button" role="radio" data-unit="kg" aria-checked="false">Kg</button>
+          </div>
+        </div>
+        <label class="field">
+          <span id="stdLabel">Standard rate (NPR per pc)</span>
+          <input id="std" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span id="buyLabel">Buy cost (NPR per pc, optional)</span>
+          <input id="buy" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" />
+        </label>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="card" aria-labelledby="s3">
+        <h2 id="s3"><span class="num">3</span> Count sold</h2>
+
+        <div id="kgBox" class="kg-box" hidden>
+          <div class="field">
+            <span>Which one adjusts?</span>
+            <div class="segmented" role="radiogroup" aria-label="Which one adjusts">
+              <button type="button" role="radio" data-absorb="qty" class="active" aria-checked="true">Quantity adjusts</button>
+              <button type="button" role="radio" data-absorb="rate" aria-checked="false">Rate adjusts</button>
+            </div>
+            <p class="hint" id="absorbHint"></p>
+          </div>
+        </div>
+
+        <div id="countKeys">
+          <div id="stepper" class="stepper"></div>
+          <p class="quick">Quick set</p>
+          <div id="presets" class="stepper presets"></div>
+        </div>
+
+        <label class="field">
+          <span id="qtyLabel">Pieces sold (whole)</span>
+          <input id="qty" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" />
+        </label>
+        <p class="hint" id="qtyHint"></p>
+        <div id="cands" class="cands-list" hidden></div>
+
+        <label class="field">
+          <span id="rateLabel">Rate (NPR per pc)</span>
+          <input id="rate" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" />
+        </label>
+        <p class="hint" id="rateHint"></p>
+        <button type="button" class="ghost-dark" id="letRate" hidden>Let rate follow count again</button>
+      </section>
+
+      <section class="card" aria-labelledby="s4">
+        <h2 id="s4"><span class="num">4</span> Result</h2>
+        <div class="verify" id="verify">
+          <div class="verify-eq" id="verifyEq">—</div>
+          <div class="verify-status" id="verifyStatus">Enter the bill total to start.</div>
+        </div>
+        <div class="band" id="band"></div>
+        <label class="field">
+          <span>Billing line</span>
+          <textarea id="billing" rows="2" readonly aria-label="Billing line"></textarea>
+        </label>
+        <button type="button" class="primary" id="copyBtn">Copy billing line</button>
+      </section>
+    </div>
+  </main>
+
+  <p class="toast" id="toast" role="status"></p>
+
+  <script src="app.js"></script>
+</body>
+</html>
