@@ -64,7 +64,17 @@ The bill has one **absorber** line. Its amount is the taxable base minus the tot
 3. Fewer decimals.
 4. The smaller gap.
 
-**Default absorber.** The first kg line, because its weight is the most precise. With no kg line, the pcs or dozen line with the smallest count, because a small count gives the finest rate steps. You can pick any line, or "Nobody" to see the variance.
+**Default absorber.** A line with no count typed yet (it suggests its own count). Otherwise the pcs or dozen line with the smallest count, because a count of 1 keeps the rate exact to the paisa. Otherwise the first kg line, because a typed weight can leave a gap. You can pick any line, or "Nobody" to see the variance. When the absorber changes, its computed box is kept as typed on the screen, so the screen and the pricing agree.
+
+### 2.3a Single bill: the fixed box
+On the absorber line, one box is **fixed** and the other follows. Typing in either box makes that box the fixed one.
+
+- **Count typed**: the rate is computed to the paisa.
+- **Rate typed**: the count is suggested as the nearest whole count (pcs) or half dozen (dozen) that keeps the rate closest. Rate absorbs the rest, so the total stays the same.
+- **Exact counts** for the total are listed under the boxes. If none exists, the variance shows.
+- **Count steps** (+1, −1, +10 for pcs; ±½, +1 for dozen) start from the count shown.
+- **Fix Count / Rate** switches which box is fixed. The value shown in that box is kept.
+- Kg: the rate is fixed by default and the weight follows. Fixing the weight lets the rate follow.
 
 ### 2.4 Close the last paisa on a 1-piece line
 If the remainder does not divide evenly, the leftover paisa goes to a line with **count 1**. Its rate moves by exactly that gap, so its amount moves by exactly that gap. The rate may go down freely. It may go up only to its max rate, never above it.
@@ -93,7 +103,7 @@ Each line prints as: name, quantity, rate, amount. Then the taxable total, the V
 ## 3. Using the calculator
 
 1. Enter the total paid, VAT inclusive.
-2. Add an item. Choose the unit (Pcs, Dozen or Kg), enter the count or weight, and the max rate. Buy cost is optional and turns on the band check.
+2. Add an item. Choose the unit (Pcs, Dozen or Kg). Type the count or the rate; the other box follows so the total stays the same. Buy cost is optional and turns on the band check.
 3. Check the absorber. Change it if the default is not the line you want.
 4. Check the status says **Exact**. Copy the billing lines.
 5. Tap **Reset** for the next customer.

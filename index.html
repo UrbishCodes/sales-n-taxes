@@ -38,7 +38,7 @@
 
       <section class="card" aria-labelledby="s2">
         <h2 id="s2"><span class="num">2</span> Items</h2>
-        <p class="hint">Each item keeps its own max rate. One line absorbs the rest, so the lines add up to the taxable base exactly.</p>
+        <p class="hint">Type the count or the rate. The other box follows, and the total stays the same. One line absorbs the rest.</p>
         <fieldset class="absorb-bill">
           <legend>Who absorbs the rest?</legend>
           <label class="absorb-pick">
@@ -90,21 +90,27 @@
         </div>
       </div>
 
-      <div class="kg-mode" hidden>
-        <div class="field">
-          <span>This kg line: which one adjusts?</span>
-          <div class="segmented" role="radiogroup" aria-label="Which one adjusts">
-            <button type="button" role="radio" class="b-kgmode" data-mode="qty" aria-checked="true">Quantity adjusts</button>
-            <button type="button" role="radio" class="b-kgmode" data-mode="rate" aria-checked="false">Rate adjusts</button>
-          </div>
+      <div class="fixed-row" hidden>
+        <span class="fixed-label">Which box do you fix? The other one follows.</span>
+        <div class="segmented" role="radiogroup" aria-label="Fixed box">
+          <button type="button" role="radio" class="b-fix" data-fix="count" aria-checked="false">Count</button>
+          <button type="button" role="radio" class="b-fix" data-fix="rate" aria-checked="true">Rate</button>
         </div>
       </div>
 
-      <label class="field">
-        <span class="l-count">Pieces sold</span>
-        <input class="f-count" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" />
-      </label>
+      <div class="two">
+        <label class="field">
+          <span class="l-count">Count (pcs)</span>
+          <input class="f-count" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span class="l-rate">Rate (NPR per pc)</span>
+          <input class="f-rate" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" />
+        </label>
+      </div>
+      <button type="button" class="ghost-dark b-usemax" hidden>Use max rate again</button>
       <div class="stepper count-keys"></div>
+      <div class="cands cands-list" hidden></div>
 
       <div class="two">
         <label class="field">
@@ -117,11 +123,6 @@
         </label>
       </div>
 
-      <label class="field">
-        <span class="l-rate">Rate used</span>
-        <input class="f-rate" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" />
-      </label>
-      <button type="button" class="ghost-dark b-usemax" hidden>Use max rate again</button>
       <p class="line-msg"></p>
     </article>
   </template>

@@ -1,4 +1,4 @@
-/* Counter sales: one bill, many items. Uses window.Solver (solver.js). Works offline. */
+/* Counter sales: one bill, one or many items. Uses window.Solver (solver.js). Works offline. */
 (function () {
   'use strict';
 
@@ -8,7 +8,8 @@
   var PER = { pcs: 'pc', doz: 'dozen', kg: 'kg' };
   var KEYS = { pcs: [-1, 1, 10], doz: [-0.5, 0.5, 1], kg: [] };
   var MIN = { pcs: 1, doz: 0.5, kg: 0 };
-  var COUNT_LABEL = { pcs: 'Pieces sold', doz: 'Dozens sold', kg: 'Weight sold (kg)' };
+  var COUNT_LABEL = { pcs: 'Count (pcs)', doz: 'Count (dozens)', kg: 'Weight (kg)' };
+  var FIX_LABEL = { pcs: 'Count', doz: 'Count', kg: 'Weight' };
   var FLAG_TEXT = {
     OK: 'margin inside 5–7% band',
     LOSS: 'LOSS: margin below 5%',
@@ -47,13 +48,20 @@
 
   function newLine() {
     st.seq += 1;
-    return { id: 'L' + st.seq, name: '', unit: 'pcs', count: NaN, std: NaN, buy: NaN, rate: NaN, kgMode: 'qty' };
+    return { id: 'L' + st.seq, name: '', unit: 'pcs', count: NaN, std: NaN, buy: NaN, rate: NaN, fixed: undefined };
   }
   function findLine(id) {
     for (var i = 0; i < st.lines.length; i++) if (st.lines[i].id === id) return st.lines[i];
     return null;
   }
   function cardFor(id) { return document.querySelector('#lines .line[data-id="' + id + '"]'); }
+
+  function effectiveAbsorber() {
+    if (st.absorber === 'none') return null;
+    if (st.absorber && findLine(st.absorber)) return st.absorber;
+    return S.defaultAbsorber(st.lines);
+  }
+  function isAbsorber(l) { return effectiveAbsorber() === l.id; }
 
   function addLine() {
     var l = newLine();
@@ -86,7 +94,7 @@
     l.unit = u;
     l.count = NaN;
     l.rate = NaN;
-    l.kgMode = 'qty';
+    l.fixed = undefined;
     var card = cardFor(l.id);
     card.querySelector('.f-count').value = '';
     card.querySelector('.f-rate').value = '';
@@ -94,18 +102,16 @@
     card.querySelector('.f-buy').value = isFinite(l.buy) ? String(l.buy) : '';
   }
 
-  function bump(l, d) {
+  // Stepper: starts from the count shown (typed or computed), then fixes it.
+  function bump(l, countEl, d) {
     var step = l.unit === 'doz' ? 0.5 : 1;
-    var cur = l.count > 0 ? l.count : 0;
+    var cur = num(countEl);
+    if (!(cur > 0)) cur = 0;
     var next = Math.max(MIN[l.unit], Math.round((cur + d) / step) * step);
     l.count = next;
-    cardFor(l.id).querySelector('.f-count').value = String(next);
-  }
-
-  function effectiveAbsorber() {
-    if (st.absorber === 'none') return null;
-    if (st.absorber && findLine(st.absorber)) return st.absorber;
-    return S.defaultAbsorber(st.lines);
+    l.fixed = 'count';
+    if (isAbsorber(l)) l.rate = NaN;
+    countEl.value = String(next);
   }
 
   // ---------- rendering ----------
@@ -131,40 +137,73 @@
     });
   }
 
-  function renderCard(l, row, absId) {
+  function fmtCount(n) { return trimNum(n, 3); }
+
+  function renderCard(l, row, absId, res) {
     var card = cardFor(l.id);
     if (!card) return;
     var isAbs = l.id === absId, kg = l.unit === 'kg';
-    var computedQty = isAbs && kg && l.kgMode !== 'rate';
     var ok = !!row && !row.error;
+    var rateFixed = isAbs && !!row && row.fixedBy === 'rate';
+    var countFixed = isAbs && !!row && row.fixedBy === 'count';
+    var fixNow = row && row.fixedBy ? row.fixedBy : S.fixedOf(l);
 
     setPressed(card.querySelectorAll('.b-unit'), 'unit', l.unit);
+    card.querySelector('.r-absorb').checked = isAbs;
     card.querySelector('.l-count').textContent = COUNT_LABEL[l.unit];
+    card.querySelector('.l-rate').textContent = 'Rate (NPR per ' + PER[l.unit] + ')';
     card.querySelector('.l-std').textContent = 'Max rate (NPR per ' + PER[l.unit] + ')';
-    card.querySelector('.l-rate').textContent = isAbs
-      ? 'Rate (worked out)' : 'Rate used (NPR per ' + PER[l.unit] + ')';
     buildKeys(card, l.unit);
 
-    var count = card.querySelector('.f-count');
-    count.readOnly = computedQty;
-    if (computedQty) setIfIdle(count, ok ? trimNum(row.qty, 4) : '');
+    card.querySelector('.fixed-row').hidden = !isAbs;
+    card.querySelector('.b-fix[data-fix="count"]').textContent = FIX_LABEL[l.unit];
+    setPressed(card.querySelectorAll('.b-fix'), 'fix', fixNow);
 
-    var rate = card.querySelector('.f-rate');
-    rate.readOnly = isAbs;
-    if (ok && row.rate > 0) setIfIdle(rate, trimNum(row.rate, 2));
-    card.querySelector('.b-usemax').hidden = isAbs || !(l.rate > 0);
-    card.querySelector('.kg-mode').hidden = !(isAbs && kg);
-    setPressed(card.querySelectorAll('.b-kgmode'), 'mode', l.kgMode);
-    card.querySelector('.r-absorb').checked = isAbs;
+    // The box the user fixes keeps what was typed. The other box shows the computed value.
+    var countEl = card.querySelector('.f-count'), rateEl = card.querySelector('.f-rate');
+    if (ok && rateFixed) setIfIdle(countEl, fmtCount(row.qty));
+    if (ok && countFixed) setIfIdle(rateEl, trimNum(row.rate, 2));
+    rateEl.placeholder = isFinite(l.std) ? String(l.std) : '';
 
+    card.querySelector('.b-usemax').hidden = !(l.rate > 0);
+
+    // Count suggestions at the typed (or max) rate, with exact counts for this total.
+    var cands = card.querySelector('.cands');
+    cands.innerHTML = '';
+    var showC = rateFixed && !kg && row.typedRate > 0 && isFinite(res.remP);
+    cands.hidden = !showC;
+    if (showC) {
+      cands.appendChild(mk('p', 'hint', 'Counts that keep the total. Tap one to fix that count.'));
+      S.countOptions(l.unit, res.remP, row.typedRate).forEach(function (c) {
+        var b = mk('button', 'cand');
+        b.type = 'button';
+        b.dataset.count = String(c.count);
+        b.appendChild(mk('strong', '', fmtCount(c.count) + ' ' + WORD[l.unit]));
+        b.appendChild(mk('span', '', 'rate ' + fmt(c.rate) + (c.exact ? ' · exact' : '')));
+        cands.appendChild(b);
+      });
+      var ex = S.exactCounts(l.unit, res.remP, row.qty);
+      cands.appendChild(mk('p', 'hint', ex.length
+        ? 'Exact for this total: ' + ex.map(function (e) { return fmtCount(e.count); }).join(', ') + ' ' + WORD[l.unit] + '.'
+        : 'No whole count gives this total exactly. The variance shows.'));
+    }
+
+    var msg = card.querySelector('.line-msg');
     var text = '', tone = '';
     if (row && row.error) {
       text = row.error;
       tone = 'bad';
     } else if (row) {
       var parts = [];
-      if (isAbs) parts.push('Absorbs the rest of the bill.');
-      if (row.adjusted) parts.push('Rate moved 1 paisa to close the bill exactly.');
+      if (rateFixed) {
+        var basis = l.rate > 0 ? 'Typed rate ' : 'Max rate ';
+        if (kg) parts.push(basis + fmt(row.typedRate) + ' kept. Weight ' + fmtCount(row.qty) + ' kg solved.');
+        else parts.push(basis + fmt(row.typedRate) + ' gives ' + fmtCount(row.qty) + ' ' + WORD[l.unit] +
+          ' at NPR ' + fmt(row.rate) + '.');
+      } else if (countFixed) {
+        parts.push((kg ? 'Weight' : 'Count') + ' fixed. Rate absorbs.');
+      }
+      if (row.adjusted) parts.push('Rate moved 1 paisa to close the bill.');
       parts.push(FLAG_TEXT[row.flag] + (row.pct !== null ? ' (' + row.pct + '%)' : ''));
       if (row.flag === 'LOSS') tone = 'bad';
       else if (row.flag === 'OVER_TAX') tone = 'warn';
@@ -174,7 +213,6 @@
       }
       text = parts.join(' ');
     }
-    var msg = card.querySelector('.line-msg');
     msg.textContent = text;
     msg.className = 'line-msg ' + tone;
   }
@@ -199,7 +237,7 @@
       var row = mk('div', 'res-row');
       var left = mk('div');
       left.appendChild(mk('strong', '', r.name || ('Item ' + (i + 1))));
-      var detail = trimNum(r.qty, 4) + ' ' + WORD[r.unit] + ' × NPR ' + fmt(r.rate);
+      var detail = fmtCount(r.qty) + ' ' + WORD[r.unit] + ' × NPR ' + fmt(r.rate);
       if (r.absorbs) detail += ' (absorbs)';
       if (r.adjusted) detail += ' (1 paisa)';
       left.appendChild(mk('small', '', detail));
@@ -229,8 +267,7 @@
     else if (!res.ok) { text = res.msg; tone = 'bad'; }
     else if (res.variance === 0) { text = 'Exact. Lines + VAT = NPR ' + fmt(G) + '.'; tone = 'ok'; }
     else {
-      text = 'Off by NPR ' + fmt(Math.abs(res.variance) / 100) +
-        '. Add a 1-piece line or a kg line to absorb it.';
+      text = 'Off by NPR ' + fmt(Math.abs(res.variance) / 100) + '.';
       tone = 'warn';
     }
     if (haveBill && res.ok && flagged) {
@@ -244,7 +281,7 @@
     if (haveBill && res.ok) {
       res.rows.forEach(function (r, i) {
         if (r.error) return;
-        out.push((r.name || ('Item ' + (i + 1))) + ': ' + trimNum(r.qty, 4) + ' ' + WORD[r.unit] +
+        out.push((r.name || ('Item ' + (i + 1))) + ': ' + fmtCount(r.qty) + ' ' + WORD[r.unit] +
           ' × NPR ' + fmt(r.rate) + ' = NPR ' + fmt(r.sub / 100));
       });
       out.push('Taxable total NPR ' + fmt(res.total / 100));
@@ -255,26 +292,51 @@
     $('absNone').checked = st.absorber === 'none';
   }
 
+  // The old absorber stops absorbing (radio changed, or a new default). Its computed box
+  // becomes typed, so the screen and the pricing agree.
+  function commitShown(G, V, id) {
+    var l = findLine(id);
+    if (!l) return;
+    var r = S.solveBill(G, V, st.lines, id);
+    var row = null;
+    r.rows.forEach(function (x) { if (x.id === id) row = x; });
+    if (!row || row.error) return;
+    if (row.fixedBy === 'rate') l.count = row.qty;
+    else if (row.fixedBy === 'count') l.rate = row.rate;
+  }
+
   function render() {
     var G = num($('gross')), V = num($('vat'));
     var absId = effectiveAbsorber();
+    if (st.lastAbs && st.lastAbs !== absId) commitShown(G, V, st.lastAbs);
+    st.lastAbs = absId;
     var res = S.solveBill(G, V, st.lines, absId);
-    st.lines.forEach(function (l, i) { renderCard(l, res.rows[i], absId); });
+    st.lines.forEach(function (l, i) { renderCard(l, res.rows[i], absId, res); });
     renderResult(res, G, V);
   }
 
   // ---------- events ----------
 
+  // Typing one box on the absorber clears the other, so only the fixed box is used.
+  // Other lines keep both values as typed.
   function onInput(e) {
     var t = e.target;
     var card = t.closest ? t.closest('.line') : null;
     var l = card ? findLine(card.dataset.id) : null;
     if (l) {
+      var abs = isAbsorber(l);
       if (t.classList.contains('f-name')) l.name = t.value.trim();
-      else if (t.classList.contains('f-count')) l.count = num(t);
-      else if (t.classList.contains('f-std')) l.std = num(t);
+      else if (t.classList.contains('f-count')) {
+        l.count = num(t);
+        l.fixed = 'count';
+        if (abs) l.rate = NaN;
+      } else if (t.classList.contains('f-std')) l.std = num(t);
       else if (t.classList.contains('f-buy')) l.buy = num(t);
-      else if (t.classList.contains('f-rate')) l.rate = num(t);
+      else if (t.classList.contains('f-rate')) {
+        l.rate = num(t);
+        l.fixed = 'rate';
+        if (abs) l.count = NaN;
+      }
     }
     render();
   }
@@ -284,6 +346,11 @@
       st.absorber = e.target.value;
       render();
     }
+  }
+
+  function onFocusIn(e) {
+    var t = e.target;
+    if (t.tagName === 'INPUT' && t.type === 'number' && t.select) t.select();
   }
 
   function onClick(e) {
@@ -296,13 +363,25 @@
     var card = t.closest('.line');
     var l = card ? findLine(card.dataset.id) : null;
     if (!l) return;
+    var countEl = card.querySelector('.f-count'), rateEl = card.querySelector('.f-rate');
+
     if (t.classList.contains('b-unit')) setUnit(l, t.dataset.unit);
-    else if (t.classList.contains('step-btn')) bump(l, Number(t.dataset.d));
-    else if (t.classList.contains('b-kgmode')) l.kgMode = t.dataset.mode;
-    else if (t.classList.contains('b-usemax')) {
+    else if (t.classList.contains('step-btn')) bump(l, countEl, Number(t.dataset.d));
+    else if (t.classList.contains('b-fix')) {
+      // Keep the value shown in the box being fixed. The other box is recomputed.
+      if (t.dataset.fix === 'rate') { l.rate = num(rateEl); l.count = NaN; }
+      else { l.count = num(countEl); l.rate = NaN; }
+      l.fixed = t.dataset.fix;
+    } else if (t.classList.contains('cand')) {
+      l.count = Number(t.dataset.count);
+      l.fixed = 'count';
       l.rate = NaN;
-      card.querySelector('.f-rate').value = '';
-    } else if (t.classList.contains('b-remove')) { removeLine(l); }
+      countEl.value = String(l.count);
+    } else if (t.classList.contains('b-usemax')) {
+      l.rate = NaN;
+      l.fixed = 'rate';
+      rateEl.value = '';
+    } else if (t.classList.contains('b-remove')) removeLine(l);
     else return;
     render();
   }
@@ -311,6 +390,7 @@
     $('lines').innerHTML = '';
     st.lines = [];
     st.absorber = null;
+    st.lastAbs = null;
     addLine();
     $('gross').value = '';
     $('vat').value = VAT_DEFAULT;
@@ -344,6 +424,7 @@
     document.addEventListener('input', onInput);
     document.addEventListener('change', onChange);
     document.addEventListener('click', onClick);
+    document.addEventListener('focusin', onFocusIn);
     render();
   }
 

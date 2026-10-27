@@ -1,11 +1,13 @@
-/* Counter sales: pure rules for one bill with many items. No DOM.
+/* Counter sales: pure rules for one bill, one or many items. No DOM.
  * Browser: window.Solver. Node tests: require().
  *
  * Bill: gross G (VAT inclusive), VAT V%. Taxable base X = G / (1 + V%).
- * Line amounts (paisa) must add up to X exactly. One line absorbs the rest:
- *   pcs and dozen: rate absorbs (count never rounded)
- *   kg: quantity absorbs by default (rate fixed at max rate)
- * Each line keeps its max rate. Rates above max are flagged (more tax).
+ * Line amounts (paisa) add up to X exactly. One absorbing line takes the rest.
+ * On the absorbing line the user fixes one box and the other adjusts:
+ *   pcs / dozen: fix count -> rate absorbs
+ *                fix rate  -> count suggested (nearest whole or half), rate absorbs
+ *   kg:          fix rate  -> weight absorbs (3 dp first)
+ *                fix weight -> rate absorbs
  */
 (function (root) {
   'use strict';
@@ -27,6 +29,8 @@
     var base = round2(G / (1 + V / 100));
     return { base: base, vat: round2(G - base) };
   }
+
+  function stepOf(unit) { return unit === 'doz' ? 0.5 : 1; }
 
   // Kg with the rate fixed: quantity to 3 dp, or 4 dp when that makes the amount exact.
   function solveKgQty(base, rate) {
@@ -55,17 +59,61 @@
     return { status: status, pct: round2(m) };
   }
 
-  // Rate used by a line: typed override, else max rate.
+  // Rate used by a line: typed rate, else max rate.
   function effRate(l) { return l.rate > 0 ? l.rate : l.std; }
 
-  // Default absorber: first kg line, else the pcs/dozen line with the smallest count.
+  // What the user fixed on a line: 'count' or 'rate'. Default: count if one is typed, else rate.
+  function fixedOf(l) { return l.fixed || (l.count > 0 ? 'count' : 'rate'); }
+
+  // Whole count (or half dozen) that keeps the rate closest to the given rate.
+  function nearestCount(unit, remRupees, rate) {
+    var step = stepOf(unit);
+    var lo = Math.max(step, Math.floor(remRupees / rate / step) * step);
+    var hi = lo + step;
+    return Math.abs(remRupees / lo - rate) <= Math.abs(remRupees / hi - rate) ? lo : hi;
+  }
+
+  // Counts around the suggestion and the rate each one gives. exact: amount to the paisa.
+  function countOptions(unit, remP, rate) {
+    var step = stepOf(unit);
+    var c = nearestCount(unit, remP / 100, rate);
+    var list = [];
+    for (var k = -2; k <= 2; k++) {
+      var n = roundTo(c + k * step, 2);
+      if (n < step - 1e-9) continue;
+      var r = round2(remP / 100 / n);
+      list.push({
+        count: n,
+        rate: r,
+        gapPct: roundTo((r - rate) / rate * 100, 2),
+        exact: Number.isInteger(remP / n)
+      });
+    }
+    list.sort(function (a, b) { return Math.abs(a.gapPct) - Math.abs(b.gapPct) || a.count - b.count; });
+    return list;
+  }
+
+  // Counts that give the total to the paisa, searched up to about twice the suggestion.
+  function exactCounts(unit, remP, around) {
+    var step = stepOf(unit), out = [];
+    var top = Math.max(around * 2, 6);
+    for (var n = step; n <= top + 1e-9 && out.length < 6; n += step) {
+      if (Number.isInteger(remP / n)) out.push({ count: n, rate: remP / n / 100 });
+    }
+    return out;
+  }
+
+  // Absorber: a line with a blank count (it suggests its own count), else the pcs/dozen line
+  // with the smallest count (a count of 1 keeps the rate exact to the paisa), else the first kg
+  // line (its rate would absorb a typed weight and can leave a gap), else the first line.
   function defaultAbsorber(lines) {
-    var kg = null, small = null;
+    var blank = null, kg = null, small = null;
     lines.forEach(function (l) {
+      if (!blank && !(l.count > 0) && fixedOf(l) === 'rate') blank = l;
       if (!kg && l.unit === 'kg') kg = l;
       if (l.unit !== 'kg' && l.count > 0 && (!small || l.count < small.count)) small = l;
     });
-    var pick = kg || small;
+    var pick = blank || small || kg || lines[0] || null;
     return pick ? pick.id : null;
   }
 
@@ -76,9 +124,9 @@
     return found;
   }
 
-  // Kg absorber: try the 3 dp and 4 dp weights either side of the exact one.
-  // Order: exact, then a gap a count-1 line closes within its max, then fewer decimals
-  // (scales read to 1 g), then the smaller gap.
+  // Kg absorber with the rate fixed: try 3 dp and 4 dp weights either side of the exact one.
+  // Order: exact, then a gap a count-1 line closes within its max, then fewer decimals,
+  // then the smaller gap.
   function pickKgQty(rem, rate, fix) {
     var raw = rem / 100 / rate;
     var cands = [];
@@ -114,13 +162,13 @@
     return rows.reduce(function (s, r) { return s + (r.error ? 0 : r.sub); }, 0);
   }
 
-  // lines: [{id, name, unit, count, std, buy, rate, kgMode}]
+  // lines: [{id, name, unit, count, std, buy, rate, fixed}]
   // absorberId: line that takes the rest, or null (then the variance shows).
   function solveBill(G, V, lines, absorberId) {
     var haveBill = G > 0 && V >= 0;
     var t = haveBill ? taxable(G, V) : { base: NaN, vat: NaN };
     var out = { ok: false, msg: '', G: G, V: V, base: t.base, vat: t.vat, X: NaN,
-                rows: [], total: 0, variance: 0 };
+                remP: NaN, rows: [], total: 0, variance: 0 };
     if (!(G > 0)) { out.msg = 'Enter the bill total.'; return out; }
     if (!(V >= 0)) { out.msg = 'Enter the VAT %.'; return out; }
     if (!lines.length) { out.msg = 'Add at least one item.'; return out; }
@@ -134,7 +182,7 @@
     var rows = lines.map(function (l) {
       return { id: l.id, name: l.name, unit: l.unit, qty: l.count, rate: NaN, std: l.std, buy: l.buy,
                sub: 0, absorbs: l === absorber, adjusted: false, error: null,
-               flag: 'NONE', pct: null, aboveMax: false };
+               flag: 'NONE', pct: null, aboveMax: false, fixedBy: null, typedRate: null };
     });
     var errors = [];
     var fixed = 0;
@@ -155,17 +203,24 @@
     if (absorber) {
       var row = rows[lines.indexOf(absorber)];
       var rem = X - fixed;
+      var rateVal = effRate(absorber);
+      var rateFixed = fixedOf(absorber) === 'rate' && rateVal > 0;
       var err2 = null;
+      out.remP = rem;
+      row.fixedBy = rateFixed ? 'rate' : 'count';
+      if (rateFixed) row.typedRate = rateVal;
+
       if (rem <= 0) {
         err2 = 'Other lines already reach the bill total. Lower a count or rate.';
-      } else if (absorber.unit === 'kg' && absorber.kgMode !== 'rate') {
-        if (!(effRate(absorber) > 0)) err2 = 'Enter the max rate.';
-        else {
-          row.rate = effRate(absorber);
-          row.qty = pickKgQty(rem, row.rate, fixerRow(rows));
-        }
+      } else if (absorber.unit === 'kg' && rateFixed) {
+        row.rate = rateVal;
+        row.qty = pickKgQty(rem, rateVal, fixerRow(rows));
+      } else if (absorber.unit !== 'kg' && rateFixed) {
+        row.qty = nearestCount(absorber.unit, rem / 100, rateVal);
+        row.rate = round2(rem / 100 / row.qty);
       } else {
         err2 = countError(absorber.unit, absorber.count);
+        if (err2 && fixedOf(absorber) === 'rate') err2 = 'Enter the max rate or the count.';
         if (!err2) {
           row.qty = absorber.count;
           row.rate = round2(rem / 100 / row.qty);
@@ -176,7 +231,7 @@
       else row.sub = toPaisa(row.qty * row.rate);
     }
 
-    // 3. Close a paisa gap on a line of count 1: its rate moves by the gap, never above max.
+    // 3. Close a paisa gap on a count-1 line: its rate moves by the gap, never above max.
     var total = sumSubs(rows);
     var resid = X - total;
     if (absorber && resid !== 0 && !errors.length) {
@@ -218,6 +273,10 @@
     countError: countError,
     bandStatus: bandStatus,
     effRate: effRate,
+    fixedOf: fixedOf,
+    nearestCount: nearestCount,
+    countOptions: countOptions,
+    exactCounts: exactCounts,
     defaultAbsorber: defaultAbsorber,
     solveBill: solveBill,
     BAND_LOW: BAND_LOW,

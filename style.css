@@ -277,3 +277,28 @@ button:active { transform: scale(0.99); }
   .col.result { position: sticky; top: 92px; }
   input[type="number"] { font-size: 22px; }
 }
+
+/* Single bill: fixed-box toggle, count suggestions, exact-count note */
+.fixed-row { margin: 0 0 12px; }
+.fixed-label { display: block; font-weight: 600; font-size: 0.95rem; margin-bottom: 6px; }
+
+.cands-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 12px; }
+.cands-list > .hint { grid-column: 1 / -1; margin: 0; }
+.cand {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 52px;
+  padding: 8px 10px;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cand strong { font-size: 1rem; font-variant-numeric: tabular-nums; }
+.cand span { font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cand:active { background: var(--soft); }
