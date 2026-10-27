@@ -1,105 +1,40 @@
-/* Counter sales: reverse-VAT unit solver. Standalone, works offline.
- * Rules: taxable base X = G / (1 + V%). Pcs and dozen counts are never rounded;
- * the rate absorbs the difference. Kg: quantity absorbs by default (rate fixed).
- */
+/* Counter sales: one bill, many items. Uses window.Solver (solver.js). Works offline. */
 (function () {
   'use strict';
 
-  var BAND_LOW = 5;   // % over buy cost; below this is a LOSS
-  var BAND_HIGH = 7;  // % over buy cost; above this is OVER TAX
+  var S = window.Solver;
   var VAT_DEFAULT = '13';
   var WORD = { pcs: 'pcs', doz: 'doz', kg: 'kg' };
   var PER = { pcs: 'pc', doz: 'dozen', kg: 'kg' };
-  var STEPS = {
-    pcs: { steps: [-1, 1, 10], presets: [1, 2, 3, 5], min: 1 },
-    doz: { steps: [-0.5, 0.5, 1], presets: [0.5, 1, 1.5, 2], min: 0.5 }
+  var KEYS = { pcs: [-1, 1, 10], doz: [-0.5, 0.5, 1], kg: [] };
+  var MIN = { pcs: 1, doz: 0.5, kg: 0 };
+  var COUNT_LABEL = { pcs: 'Pieces sold', doz: 'Dozens sold', kg: 'Weight sold (kg)' };
+  var FLAG_TEXT = {
+    OK: 'margin inside 5–7% band',
+    LOSS: 'LOSS: margin below 5%',
+    OVER_TAX: 'OVER TAX: margin above 7%',
+    NONE: 'no buy cost entered'
   };
 
-  // ---------- pure rules (unit tested) ----------
-
-  function roundTo(n, d) {
-    var f = Math.pow(10, d);
-    var r = Math.round(Math.abs(n) * f + 1e-9) / f;
-    return n < 0 ? -r : r;
-  }
-  function round2(n) { return roundTo(n, 2); }
-
-  // Amount in paisa, after removing float noise.
-  function toPaisa(x) { return Math.round(Math.round(x * 1e6) / 1e4); }
-
-  function taxable(gross, vatPct) {
-    var base = round2(gross / (1 + vatPct / 100));
-    return { base: base, vat: round2(gross - base) };
-  }
-
-  // Kg with the rate fixed: quantity to 3 dp, or 4 dp if that makes the total exact.
-  function solveKgQty(base, rate) {
-    var raw = base / rate;
-    var q3 = roundTo(raw, 3);
-    if (toPaisa(q3 * rate) === toPaisa(base)) return q3;
-    var q4 = roundTo(raw, 4);
-    return toPaisa(q4 * rate) === toPaisa(base) ? q4 : q3;
-  }
-
-  function countError(unit, q) {
-    if (!(q > 0)) return 'Enter the count sold.';
-    if (unit === 'pcs' && q !== Math.floor(q)) return 'Pcs are whole numbers: 1, 2, 3…';
-    if (unit === 'doz' && Math.abs(q * 2 - Math.round(q * 2)) > 1e-9) return 'Dozens go in halves: ½, 1, 1½…';
-    if (unit === 'kg' && Math.abs(q * 1000 - Math.round(q * 1000)) > 1e-6) return 'Weight goes to 3 decimals at most.';
-    return null;
-  }
-
-  // Margin of rate over buy cost (both in the same unit).
-  function bandStatus(rate, buy, low, high) {
-    if (!(buy > 0)) return { status: 'NONE' };
-    var m = (rate - buy) / buy * 100;
-    var out = {
-      status: 'OK',
-      pct: round2(m),
-      low: round2(buy * (1 + low / 100)),
-      high: round2(buy * (1 + high / 100))
-    };
-    if (m < low - 1e-9) out.status = 'LOSS';
-    else if (m > high + 1e-9) out.status = 'OVER_TAX';
-    return out;
-  }
-
-  // Closest whole counts (pcs) or half-dozens (doz) to the standard rate.
-  function closestCounts(base, unit, std) {
-    if (!(base > 0) || !(std > 0)) return [];
-    var step = unit === 'doz' ? 0.5 : 1;
-    var center = Math.round(base / std / step) * step;
-    var seen = {}, list = [];
-    for (var k = -2; k <= 2; k++) {
-      var n = roundTo(center + k * step, 2);
-      if (n < step - 1e-9 || seen[n]) continue;
-      seen[n] = true;
-      var rate = round2(base / n);
-      list.push({ count: n, rate: rate, gapPct: roundTo((rate - std) / std * 100, 2) });
-    }
-    list.sort(function (a, b) { return Math.abs(a.gapPct) - Math.abs(b.gapPct) || a.count - b.count; });
-    return list.slice(0, 4);
-  }
-
-  // ---------- screen ----------
-
-  var state = { unit: 'pcs', absorb: 'qty', rateManual: false };
+  var st = { lines: [], absorber: null, seq: 0 };
   var nf = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   var toastTimer = null;
 
   function $(id) { return document.getElementById(id); }
   function fmt(n) { return nf.format(n); }
   function trimNum(n, d) { return String(Number(n.toFixed(d))); }
-  function fmtQty(q) { return trimNum(q, state.unit === 'kg' ? 4 : 2); }
+  function num(el) { var s = el.value.trim(); return s === '' ? NaN : Number(s); }
+  function setIfIdle(el, v) { if (document.activeElement !== el) el.value = v; }
+  function mk(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
   function fracLabel(n) {
     var w = Math.floor(n + 1e-9), half = n - w > 0.25;
     return (w ? String(w) : '') + (half ? '½' : '') || '0';
   }
-  function val(id) {
-    var s = $(id).value.trim();
-    return s === '' ? NaN : Number(s);
-  }
-
   function toast(msg) {
     var t = $('toast');
     t.textContent = msg;
@@ -108,293 +43,293 @@
     toastTimer = setTimeout(function () { t.classList.remove('show'); }, 1800);
   }
 
-  // Everything the result needs, from the current inputs.
-  function compute() {
-    var G = val('gross'), V = val('vat');
-    var u = state.unit, kg = u === 'kg';
-    var r = { ok: false, msg: 'Enter the bill total to start.', G: G, V: V };
-    if (!(G > 0)) return r;
-    if (!(V >= 0)) { r.msg = 'Enter the VAT %.'; return r; }
+  // ---------- lines ----------
 
-    var t = taxable(G, V);
-    r.base = t.base;
-    r.vat = t.vat;
+  function newLine() {
+    st.seq += 1;
+    return { id: 'L' + st.seq, name: '', unit: 'pcs', count: NaN, std: NaN, buy: NaN, rate: NaN, kgMode: 'qty' };
+  }
+  function findLine(id) {
+    for (var i = 0; i < st.lines.length; i++) if (st.lines[i].id === id) return st.lines[i];
+    return null;
+  }
+  function cardFor(id) { return document.querySelector('#lines .line[data-id="' + id + '"]'); }
 
-    var qty, rate;
-    if (kg && state.absorb === 'qty') {
-      var std = val('std');
-      if (!(std > 0)) { r.msg = 'Enter the standard rate per kg.'; return r; }
-      rate = std;
-      qty = solveKgQty(r.base, std);
+  function addLine() {
+    var l = newLine();
+    st.lines.push(l);
+    var card = $('lineTpl').content.firstElementChild.cloneNode(true);
+    card.dataset.id = l.id;
+    card.querySelector('.r-absorb').value = l.id;
+    $('lines').appendChild(card);
+  }
+
+  function removeLine(l) {
+    var card = cardFor(l.id);
+    if (card) card.remove();
+    st.lines = st.lines.filter(function (x) { return x.id !== l.id; });
+    if (st.absorber === l.id) st.absorber = null;
+    if (!st.lines.length) addLine();
+  }
+
+  function setUnit(l, u) {
+    if (u === l.unit) return;
+    var from = l.unit, kgSwitch = from === 'kg' || u === 'kg';
+    var factor = (from === 'pcs' && u === 'doz') ? 12 : (from === 'doz' && u === 'pcs') ? 1 / 12 : 1;
+    if (kgSwitch) {
+      l.std = NaN;
+      l.buy = NaN;
     } else {
-      qty = val('qty');
-      var err = countError(u, qty);
-      if (err) { r.msg = err; return r; }
-      if (!kg && state.rateManual) {
-        rate = val('rate');
-        if (!(rate > 0)) { r.msg = 'Enter the rate, or tap "Let rate follow count again".'; return r; }
-      } else {
-        rate = round2(r.base / qty);
-      }
+      if (l.std > 0) l.std = S.roundTo(l.std * factor, 4);
+      if (l.buy > 0) l.buy = S.roundTo(l.buy * factor, 4);
     }
-
-    var totalP = toPaisa(qty * rate);
-    r.ok = true;
-    r.qty = qty;
-    r.rate = rate;
-    r.total = totalP / 100;
-    r.variance = (totalP - toPaisa(r.base)) / 100;
-    r.band = bandStatus(rate, val('buy'), BAND_LOW, BAND_HIGH);
-    return r;
+    l.unit = u;
+    l.count = NaN;
+    l.rate = NaN;
+    l.kgMode = 'qty';
+    var card = cardFor(l.id);
+    card.querySelector('.f-count').value = '';
+    card.querySelector('.f-rate').value = '';
+    card.querySelector('.f-std').value = isFinite(l.std) ? String(l.std) : '';
+    card.querySelector('.f-buy').value = isFinite(l.buy) ? String(l.buy) : '';
   }
 
-  function labels() {
-    var per = PER[state.unit];
-    if (state.unit === 'kg') {
-      return {
-        std: 'Standard rate (NPR per kg)',
-        buy: 'Buy cost (NPR per kg, optional)',
-        rate: 'Rate (NPR per kg)',
-        qty: state.absorb === 'qty' ? 'Quantity (worked out)' : 'Weight sold (kg)'
-      };
-    }
-    return {
-      std: 'Standard rate (NPR per ' + per + ')',
-      buy: 'Buy cost (NPR per ' + per + ', optional)',
-      rate: 'Rate (NPR per ' + per + ')',
-      qty: state.unit === 'pcs' ? 'Pieces sold (whole)' : 'Dozens sold (halves)'
-    };
+  function bump(l, d) {
+    var step = l.unit === 'doz' ? 0.5 : 1;
+    var cur = l.count > 0 ? l.count : 0;
+    var next = Math.max(MIN[l.unit], Math.round((cur + d) / step) * step);
+    l.count = next;
+    cardFor(l.id).querySelector('.f-count').value = String(next);
   }
 
-  function hints() {
-    if (state.unit === 'kg') {
-      return {
-        absorb: state.absorb === 'qty'
-          ? 'Quantity adjusts. Rate stays at the standard.'
-          : 'Rate adjusts. You type the weight sold.',
-        qty: state.absorb === 'qty'
-          ? 'Worked out so the total equals the bill.'
-          : 'Type the weight you sold.',
-        rate: 'Worked out from the weight.'
-      };
-    }
-    return {
-      absorb: '',
-      qty: state.unit === 'pcs' ? 'Whole pieces only. The rate absorbs the difference.'
-                                : 'Halves only. The rate absorbs the difference.',
-      rate: state.rateManual
-        ? 'Typed by you. The count is held and the variance shows the difference.'
-        : 'Follows the count. Type here to hold a rate instead.'
-    };
+  function effectiveAbsorber() {
+    if (st.absorber === 'none') return null;
+    if (st.absorber && findLine(st.absorber)) return st.absorber;
+    return S.defaultAbsorber(st.lines);
   }
 
-  function setPressed(selector, key, value) {
-    var list = document.querySelectorAll(selector);
-    for (var i = 0; i < list.length; i++) {
-      var on = list[i].dataset[key] === value;
-      list[i].classList.toggle('active', on);
-      list[i].setAttribute('aria-checked', on ? 'true' : 'false');
+  // ---------- rendering ----------
+
+  function setPressed(nodes, key, value) {
+    for (var i = 0; i < nodes.length; i++) {
+      var on = nodes[i].dataset[key] === value;
+      nodes[i].classList.toggle('active', on);
+      nodes[i].setAttribute('aria-checked', on ? 'true' : 'false');
     }
   }
 
-  function makeButton(label, cls, onClick) {
-    var b = document.createElement('button');
-    b.type = 'button';
-    b.className = cls;
-    b.textContent = label;
-    b.addEventListener('click', onClick);
-    return b;
-  }
-
-  function buildStepper() {
-    var box = $('stepper'), pre = $('presets');
-    if (box.dataset.built === state.unit) return;
-    box.dataset.built = state.unit;
+  function buildKeys(card, unit) {
+    var box = card.querySelector('.count-keys');
+    if (box.dataset.unit === unit) return;
+    box.dataset.unit = unit;
     box.innerHTML = '';
-    pre.innerHTML = '';
-    var cfg = STEPS[state.unit];
-    if (!cfg) return;
-    cfg.steps.forEach(function (d) {
-      box.appendChild(makeButton((d > 0 ? '+' : '−') + fracLabel(Math.abs(d)), 'step-btn', function () { bump(d); }));
-    });
-    cfg.presets.forEach(function (n) {
-      pre.appendChild(makeButton(fracLabel(n), 'step-btn', function () { pick(n); }));
-    });
-  }
-
-  function renderCands(r) {
-    var box = $('cands');
-    var list = (state.unit !== 'kg' && r.base !== undefined)
-      ? closestCounts(r.base, state.unit, val('std')) : [];
-    box.innerHTML = '';
-    box.hidden = list.length === 0;
-    if (!list.length) return;
-
-    var head = document.createElement('p');
-    head.className = 'hint';
-    head.textContent = 'Closest counts at the standard rate. Tap one to use it.';
-    box.appendChild(head);
-
-    list.forEach(function (c) {
-      var b = document.createElement('button');
+    (KEYS[unit] || []).forEach(function (d) {
+      var b = mk('button', 'step-btn', (d > 0 ? '+' : '−') + fracLabel(Math.abs(d)));
       b.type = 'button';
-      b.className = 'cand';
-      var s = document.createElement('strong');
-      s.textContent = fmtQty(c.count) + ' ' + WORD[state.unit];
-      var sp = document.createElement('span');
-      sp.textContent = 'rate ' + fmt(c.rate) + ' (' + (c.gapPct > 0 ? '+' : '') + c.gapPct + '% vs std)';
-      b.appendChild(s);
-      b.appendChild(sp);
-      b.addEventListener('click', function () { pick(c.count); });
+      b.dataset.d = String(d);
       box.appendChild(b);
     });
   }
 
-  function render() {
-    var kg = state.unit === 'kg';
-    var r = compute();
-    var L = labels(), H = hints();
+  function renderCard(l, row, absId) {
+    var card = cardFor(l.id);
+    if (!card) return;
+    var isAbs = l.id === absId, kg = l.unit === 'kg';
+    var computedQty = isAbs && kg && l.kgMode !== 'rate';
+    var ok = !!row && !row.error;
 
-    buildStepper();
-    setPressed('[data-unit]', 'unit', state.unit);
-    setPressed('[data-absorb]', 'absorb', state.absorb);
+    setPressed(card.querySelectorAll('.b-unit'), 'unit', l.unit);
+    card.querySelector('.l-count').textContent = COUNT_LABEL[l.unit];
+    card.querySelector('.l-std').textContent = 'Max rate (NPR per ' + PER[l.unit] + ')';
+    card.querySelector('.l-rate').textContent = isAbs
+      ? 'Rate (worked out)' : 'Rate used (NPR per ' + PER[l.unit] + ')';
+    buildKeys(card, l.unit);
 
-    $('kgBox').hidden = !kg;
-    $('absorbHint').textContent = kg ? H.absorb : '';
-    $('countKeys').hidden = kg;
-    $('stdLabel').textContent = L.std;
-    $('buyLabel').textContent = L.buy;
-    $('qtyLabel').textContent = L.qty;
-    $('rateLabel').textContent = L.rate;
-    $('qtyHint').textContent = H.qty;
-    $('rateHint').textContent = H.rate;
-    $('qty').readOnly = kg && state.absorb === 'qty';
-    $('rate').readOnly = kg;
-    $('letRate').hidden = kg || !state.rateManual;
+    var count = card.querySelector('.f-count');
+    count.readOnly = computedQty;
+    if (computedQty) setIfIdle(count, ok ? trimNum(row.qty, 4) : '');
 
-    // Step 1 ledger
-    $('baseOut').textContent = r.base !== undefined ? fmt(r.base) : '—';
-    $('vatOut').textContent = r.vat !== undefined ? fmt(r.vat) : '—';
-    $('formula').textContent = r.base !== undefined
-      ? 'Taxable base = ' + fmt(r.G) + ' ÷ (1 + ' + r.V + '%)' : '';
+    var rate = card.querySelector('.f-rate');
+    rate.readOnly = isAbs;
+    if (ok && row.rate > 0) setIfIdle(rate, trimNum(row.rate, 2));
+    card.querySelector('.b-usemax').hidden = isAbs || !(l.rate > 0);
+    card.querySelector('.kg-mode').hidden = !(isAbs && kg);
+    setPressed(card.querySelectorAll('.b-kgmode'), 'mode', l.kgMode);
+    card.querySelector('.r-absorb').checked = isAbs;
 
-    // Values the calculator fills in. The user types only the fixed ones.
-    if (kg && state.absorb === 'qty') $('qty').value = r.ok ? trimNum(r.qty, 4) : '';
-    if (kg || !state.rateManual) {
-      $('rate').value = r.ok ? (kg ? trimNum(r.rate, 4) : r.rate.toFixed(2)) : '';
-    }
-
-    // Step 4 result
-    var verify = $('verify'), cls = 'verify';
-    if (!r.ok) {
-      $('verifyEq').textContent = '—';
-      $('verifyStatus').textContent = r.msg;
-      $('band').textContent = '';
-      $('band').className = 'band';
-    } else {
-      $('verifyEq').textContent = fmtQty(r.qty) + ' ' + WORD[state.unit] + ' × ' +
-        fmt(r.rate) + ' = ' + fmt(r.total);
-      $('verifyStatus').textContent = r.variance === 0
-        ? 'Exact. The total equals the taxable base ' + fmt(r.base) + '.'
-        : 'Variance ' + (r.variance > 0 ? '+' : '−') + fmt(Math.abs(r.variance)) +
-          ' against the taxable base ' + fmt(r.base) + '.';
-
-      var b = r.band, bandCls = 'band ok', bandText;
-      if (b.status === 'NONE') {
-        bandCls = 'band';
-        bandText = 'Enter the buy cost to check the 5–7% band.';
-      } else if (b.status === 'LOSS') {
-        bandCls = 'band bad';
-        bandText = 'LOSS: margin ' + b.pct + '% is below ' + BAND_LOW +
-          '%. Staff, rent and other costs are not covered.';
-      } else if (b.status === 'OVER_TAX') {
-        bandCls = 'band warn';
-        bandText = 'OVER TAX: margin ' + b.pct + '% is above ' + BAND_HIGH +
-          '%. Extra tax applies to the profit above the band.';
-      } else {
-        bandText = 'Margin ' + b.pct + '%, inside the band. Allowed rate NPR ' +
-          fmt(b.low) + ' to ' + fmt(b.high) + ' per ' + PER[state.unit] + '.';
+    var text = '', tone = '';
+    if (row && row.error) {
+      text = row.error;
+      tone = 'bad';
+    } else if (row) {
+      var parts = [];
+      if (isAbs) parts.push('Absorbs the rest of the bill.');
+      if (row.adjusted) parts.push('Rate moved 1 paisa to close the bill exactly.');
+      parts.push(FLAG_TEXT[row.flag] + (row.pct !== null ? ' (' + row.pct + '%)' : ''));
+      if (row.flag === 'LOSS') tone = 'bad';
+      else if (row.flag === 'OVER_TAX') tone = 'warn';
+      if (row.aboveMax) {
+        parts.push('Above max rate: more tax.');
+        if (tone !== 'bad') tone = 'warn';
       }
-      $('band').textContent = bandText;
-      $('band').className = bandCls;
-
-      if (b.status === 'LOSS') cls = 'verify bad';
-      else if (b.status === 'OVER_TAX' || r.variance !== 0) cls = 'verify warn';
-      else cls = 'verify ok';
+      text = parts.join(' ');
     }
-    verify.className = cls;
-
-    var name = $('item').value.trim() || 'Item';
-    $('billing').value = r.ok
-      ? name + ': ' + fmtQty(r.qty) + ' ' + WORD[state.unit] + ' × NPR ' + fmt(r.rate) +
-        ' = NPR ' + fmt(r.total)
-      : '';
-
-    renderCands(r);
+    var msg = card.querySelector('.line-msg');
+    msg.textContent = text;
+    msg.className = 'line-msg ' + tone;
   }
 
-  // Count choices from buttons: the count is set and the rate follows it again.
-  function pick(n) {
-    $('qty').value = String(n);
-    state.rateManual = false;
+  function addTot(label, value) {
+    var d = mk('div');
+    d.appendChild(mk('span', '', label));
+    d.appendChild(mk('strong', '', value));
+    $('totals').appendChild(d);
+  }
+
+  function renderResult(res, G, V) {
+    var haveBill = G > 0 && V >= 0;
+    $('baseOut').textContent = haveBill ? fmt(res.base) : '—';
+    $('vatOut').textContent = haveBill ? fmt(res.vat) : '—';
+    $('formula').textContent = haveBill ? 'Taxable base = ' + fmt(G) + ' ÷ (1 + ' + V + '%)' : '';
+
+    var box = $('resRows');
+    box.innerHTML = '';
+    res.rows.forEach(function (r, i) {
+      if (r.error) return;
+      var row = mk('div', 'res-row');
+      var left = mk('div');
+      left.appendChild(mk('strong', '', r.name || ('Item ' + (i + 1))));
+      var detail = trimNum(r.qty, 4) + ' ' + WORD[r.unit] + ' × NPR ' + fmt(r.rate);
+      if (r.absorbs) detail += ' (absorbs)';
+      if (r.adjusted) detail += ' (1 paisa)';
+      left.appendChild(mk('small', '', detail));
+      row.appendChild(left);
+      row.appendChild(mk('strong', '', fmt(r.sub / 100)));
+      box.appendChild(row);
+    });
+
+    var tot = $('totals');
+    tot.innerHTML = '';
+    if (haveBill && res.ok) {
+      var sign = res.variance > 0 ? '+' : (res.variance < 0 ? '−' : '');
+      addTot('Taxable base (G ÷ (1 + V%))', fmt(res.base));
+      addTot('Lines total', fmt(res.total / 100));
+      addTot('Variance', sign + fmt(Math.abs(res.variance) / 100));
+      addTot('VAT ' + V + '%', fmt(res.vat));
+      addTot('Bill total (lines + VAT)', fmt((res.total + S.toPaisa(res.vat)) / 100));
+      addTot('Bill total entered', fmt(G));
+    }
+
+    var status = $('status');
+    var flagged = res.rows.filter(function (r) {
+      return !r.error && (r.flag === 'LOSS' || r.flag === 'OVER_TAX' || r.aboveMax);
+    }).length;
+    var text, tone;
+    if (!haveBill) { text = 'Enter the bill total.'; tone = ''; }
+    else if (!res.ok) { text = res.msg; tone = 'bad'; }
+    else if (res.variance === 0) { text = 'Exact. Lines + VAT = NPR ' + fmt(G) + '.'; tone = 'ok'; }
+    else {
+      text = 'Off by NPR ' + fmt(Math.abs(res.variance) / 100) +
+        '. Add a 1-piece line or a kg line to absorb it.';
+      tone = 'warn';
+    }
+    if (haveBill && res.ok && flagged) {
+      text += ' ' + flagged + ' line(s) outside band or above max rate.';
+      if (tone === 'ok') tone = 'warn';
+    }
+    status.textContent = text;
+    status.className = 'status ' + tone;
+
+    var out = [];
+    if (haveBill && res.ok) {
+      res.rows.forEach(function (r, i) {
+        if (r.error) return;
+        out.push((r.name || ('Item ' + (i + 1))) + ': ' + trimNum(r.qty, 4) + ' ' + WORD[r.unit] +
+          ' × NPR ' + fmt(r.rate) + ' = NPR ' + fmt(r.sub / 100));
+      });
+      out.push('Taxable total NPR ' + fmt(res.total / 100));
+      out.push('VAT ' + V + '% NPR ' + fmt(res.vat));
+      out.push('Bill total NPR ' + fmt(G));
+    }
+    $('billing').value = out.join('\n');
+    $('absNone').checked = st.absorber === 'none';
+  }
+
+  function render() {
+    var G = num($('gross')), V = num($('vat'));
+    var absId = effectiveAbsorber();
+    var res = S.solveBill(G, V, st.lines, absId);
+    st.lines.forEach(function (l, i) { renderCard(l, res.rows[i], absId); });
+    renderResult(res, G, V);
+  }
+
+  // ---------- events ----------
+
+  function onInput(e) {
+    var t = e.target;
+    var card = t.closest ? t.closest('.line') : null;
+    var l = card ? findLine(card.dataset.id) : null;
+    if (l) {
+      if (t.classList.contains('f-name')) l.name = t.value.trim();
+      else if (t.classList.contains('f-count')) l.count = num(t);
+      else if (t.classList.contains('f-std')) l.std = num(t);
+      else if (t.classList.contains('f-buy')) l.buy = num(t);
+      else if (t.classList.contains('f-rate')) l.rate = num(t);
+    }
     render();
   }
 
-  function bump(d) {
-    var cfg = STEPS[state.unit];
-    var step = state.unit === 'doz' ? 0.5 : 1;
-    var cur = val('qty');
-    if (!(cur > 0)) cur = 0;
-    var next = Math.max(cfg.min, Math.round((cur + d) / step) * step);
-    pick(next);
+  function onChange(e) {
+    if (e.target.name === 'absorber') {
+      st.absorber = e.target.value;
+      render();
+    }
   }
 
-  function setUnit(u) {
-    var from = state.unit;
-    if (u === from) return;
-    var kgSwitch = from === 'kg' || u === 'kg';
-    var factor = (from === 'pcs' && u === 'doz') ? 12
-               : (from === 'doz' && u === 'pcs') ? 1 / 12 : 1;
-    ['std', 'buy'].forEach(function (id) {
-      var v = val(id);
-      if (kgSwitch) $(id).value = '';
-      else if (v > 0) $(id).value = String(roundTo(v * factor, 4));
-    });
-    state.unit = u;
-    state.rateManual = false;
-    $('qty').value = '';
-    $('rate').value = '';
+  function onClick(e) {
+    var t = e.target.closest('button');
+    if (!t) return;
+    if (t.id === 'addLine') { addLine(); render(); return; }
+    if (t.id === 'resetBtn') { resetAll(); return; }
+    if (t.id === 'copyBtn') { copyText(); return; }
+
+    var card = t.closest('.line');
+    var l = card ? findLine(card.dataset.id) : null;
+    if (!l) return;
+    if (t.classList.contains('b-unit')) setUnit(l, t.dataset.unit);
+    else if (t.classList.contains('step-btn')) bump(l, Number(t.dataset.d));
+    else if (t.classList.contains('b-kgmode')) l.kgMode = t.dataset.mode;
+    else if (t.classList.contains('b-usemax')) {
+      l.rate = NaN;
+      card.querySelector('.f-rate').value = '';
+    } else if (t.classList.contains('b-remove')) { removeLine(l); }
+    else return;
     render();
   }
 
   function resetAll() {
-    ['gross', 'item', 'std', 'buy', 'qty', 'rate'].forEach(function (id) { $(id).value = ''; });
+    $('lines').innerHTML = '';
+    st.lines = [];
+    st.absorber = null;
+    addLine();
+    $('gross').value = '';
     $('vat').value = VAT_DEFAULT;
-    state.unit = 'pcs';
-    state.absorb = 'qty';
-    state.rateManual = false;
     render();
     $('gross').focus();
     toast('Cleared. Ready for the next bill.');
   }
 
-  function onInput(e) {
-    // Typing in the rate holds it. Only the "Let rate follow count again" button releases it.
-    if (e.target.id === 'rate') state.rateManual = true;
-    render();
-  }
-
-  function copyLine() {
-    var el = $('billing'), text = el.value;
+  function copyText() {
+    var ta = $('billing'), text = ta.value;
     if (!text) { toast('Enter the bill first.'); return; }
     function fallback() {
-      el.removeAttribute('readonly');
-      el.focus();
-      el.select();
-      el.setSelectionRange(0, text.length);
+      ta.removeAttribute('readonly');
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0, text.length);
       var ok = false;
-      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
-      el.setAttribute('readonly', '');
+      try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+      ta.setAttribute('readonly', '');
       toast(ok ? 'Copied.' : 'Select the text and copy it.');
     }
     if (navigator.clipboard && window.isSecureContext) {
@@ -405,34 +340,13 @@
   }
 
   function init() {
-    ['gross', 'vat', 'std', 'buy', 'item', 'qty', 'rate'].forEach(function (id) {
-      $(id).addEventListener('input', onInput);
-    });
-    document.querySelectorAll('[data-unit]').forEach(function (b) {
-      b.addEventListener('click', function () { setUnit(b.dataset.unit); });
-    });
-    document.querySelectorAll('[data-absorb]').forEach(function (b) {
-      b.addEventListener('click', function () { state.absorb = b.dataset.absorb; render(); });
-    });
-    $('letRate').addEventListener('click', function () {
-      state.rateManual = false;
-      $('rate').value = '';
-      render();
-    });
-    $('resetBtn').addEventListener('click', resetAll);
-    $('copyBtn').addEventListener('click', copyLine);
+    addLine();
+    document.addEventListener('input', onInput);
+    document.addEventListener('change', onChange);
+    document.addEventListener('click', onClick);
     render();
   }
 
-  // Pure rules are exported for tests (Node). The page only needs init().
-  var api = {
-    roundTo: roundTo, round2: round2, toPaisa: toPaisa, taxable: taxable,
-    solveKgQty: solveKgQty, countError: countError, bandStatus: bandStatus,
-    closestCounts: closestCounts
-  };
-  if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  if (typeof document !== 'undefined') {
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-    else init();
-  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
 })();
