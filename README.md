@@ -98,11 +98,19 @@ Band checks need the buy cost. Without it, the line shows "no buy cost entered".
 ### 2.6 Billing lines
 Each line prints as: name, quantity, rate, amount. Then the taxable total, the VAT, and the bill total. The result can be copied with one tap.
 
+### 2.7 VAT included or excluded
+- **VAT included** (default). You type what the customer paid. Taxable base = paid ÷ (1 + V%). VAT = paid − base.
+- **VAT excluded**. You type the taxable amount. VAT = taxable × V%. Total = taxable + VAT.
+- **VAT excluded, nothing typed**. The bill is built from the items. Each line is priced as entered, the taxable amount is their sum, and VAT goes on top. No line absorbs.
+
+### 2.8 Side calculator
+A plain calculator for any other sum: + − × ÷ and brackets. "+ VAT" and "− VAT" use the bill's VAT %. "Use as bill total" sends the result to the bill box (the taxable amount in VAT excluded mode).
+
 ---
 
 ## 3. Using the calculator
 
-1. Enter the total paid, VAT inclusive.
+1. Choose VAT included (default) or VAT excluded. Enter the total paid, or the taxable amount for VAT excluded (leave it blank to build from the items).
 2. Add an item. Choose the unit (Pcs, Dozen or Kg). Type the count or the rate; the other box follows so the total stays the same. Buy cost is optional and turns on the band check.
 3. Check the absorber. Change it if the default is not the line you want.
 4. Check the status says **Exact**. Copy the billing lines.

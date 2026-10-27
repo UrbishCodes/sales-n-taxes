@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="color-scheme" content="light" />
-  <meta name="description" content="Counter sales: one bill, many items, reverse VAT. Works offline." />
+  <meta name="description" content="Counter sales: one bill, many items, VAT included or excluded, reverse VAT, side calculator. Works offline." />
   <title>Counter Sales</title>
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -12,19 +12,30 @@
   <header class="topbar">
     <div>
       <h1>Counter sales</h1>
-      <p class="conn">One bill, many items · reverse VAT · works offline</p>
+      <p class="conn">One bill, many items · VAT in or out · works offline</p>
     </div>
-    <button type="button" class="ghost" id="resetBtn">Reset</button>
+    <div class="topbar-btns">
+      <button type="button" class="ghost" id="calcBtn" aria-expanded="false" aria-controls="calcPanel">Calculator</button>
+      <button type="button" class="ghost" id="resetBtn">Reset</button>
+    </div>
   </header>
 
   <main class="layout">
     <div class="col">
       <section class="card" aria-labelledby="s1">
         <h2 id="s1"><span class="num">1</span> Bill total</h2>
+        <div class="field">
+          <span>VAT mode</span>
+          <div class="segmented" id="modeBtns" role="radiogroup" aria-label="VAT mode">
+            <button type="button" role="radio" class="b-mode active" data-mode="incl" aria-checked="true">VAT included</button>
+            <button type="button" role="radio" class="b-mode" data-mode="excl" aria-checked="false">VAT excluded</button>
+          </div>
+        </div>
         <label class="field">
-          <span>Total paid, incl. VAT (NPR)</span>
+          <span id="grossLabel">Total paid, incl. VAT (NPR)</span>
           <input id="gross" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" placeholder="e.g. 7500" />
         </label>
+        <p class="hint" id="modeHint">Type what the customer paid. Taxable base and VAT are worked out from it.</p>
         <label class="field">
           <span>VAT %</span>
           <input id="vat" type="number" inputmode="decimal" step="any" min="0" value="13" autocomplete="off" />
@@ -32,20 +43,23 @@
         <div class="ledger">
           <div><span>Taxable base</span><strong id="baseOut">—</strong></div>
           <div><span>VAT amount</span><strong id="vatOut">—</strong></div>
+          <div class="wide"><span>Total incl. VAT</span><strong id="totalOut">—</strong></div>
         </div>
         <p class="formula" id="formula"></p>
       </section>
 
       <section class="card" aria-labelledby="s2">
         <h2 id="s2"><span class="num">2</span> Items</h2>
-        <p class="hint">Type the count or the rate. The other box follows, and the total stays the same. One line absorbs the rest.</p>
-        <fieldset class="absorb-bill">
-          <legend>Who absorbs the rest?</legend>
-          <label class="absorb-pick">
-            <input type="radio" name="absorber" value="none" id="absNone" />
-            <span>Nobody, show the variance</span>
-          </label>
-        </fieldset>
+        <p class="hint" id="itemsHint">Type the count or the rate. The other box follows, and the total stays the same. One line absorbs the rest.</p>
+        <div id="absBox">
+          <fieldset class="absorb-bill">
+            <legend>Who absorbs the rest?</legend>
+            <label class="absorb-pick">
+              <input type="radio" name="absorber" value="none" id="absNone" />
+              <span>Nobody, show the variance</span>
+            </label>
+          </fieldset>
+        </div>
         <div id="lines"></div>
         <button type="button" class="secondary" id="addLine">+ Add item</button>
       </section>
@@ -65,6 +79,49 @@
       </section>
     </div>
   </main>
+
+  <aside class="calc" id="calcPanel" aria-label="Calculator" hidden>
+    <div class="calc-head">
+      <strong>Calculator</strong>
+      <button type="button" class="link" id="calcClose">Close</button>
+    </div>
+    <div class="calc-screen">
+      <p class="calc-prev" id="calcPrev"></p>
+      <p class="calc-now" id="calcNow">0</p>
+    </div>
+    <div class="calc-keys">
+      <button type="button" data-calc="C" class="k-op">C</button>
+      <button type="button" data-calc="DEL" class="k-op">⌫</button>
+      <button type="button" data-calc="(" class="k-op">(</button>
+      <button type="button" data-calc=")" class="k-op">)</button>
+
+      <button type="button" data-calc="7">7</button>
+      <button type="button" data-calc="8">8</button>
+      <button type="button" data-calc="9">9</button>
+      <button type="button" data-calc="/" class="k-op">÷</button>
+
+      <button type="button" data-calc="4">4</button>
+      <button type="button" data-calc="5">5</button>
+      <button type="button" data-calc="6">6</button>
+      <button type="button" data-calc="*" class="k-op">×</button>
+
+      <button type="button" data-calc="1">1</button>
+      <button type="button" data-calc="2">2</button>
+      <button type="button" data-calc="3">3</button>
+      <button type="button" data-calc="-" class="k-op">−</button>
+
+      <button type="button" data-calc="0">0</button>
+      <button type="button" data-calc=".">.</button>
+      <button type="button" data-calc="=" class="k-eq">=</button>
+      <button type="button" data-calc="+" class="k-op">+</button>
+
+      <button type="button" data-calc="ADDVAT" class="k-wide">+ VAT</button>
+      <button type="button" data-calc="REMVAT" class="k-wide">− VAT (remove)</button>
+
+      <button type="button" data-calc="USE" class="k-all" id="useCalcBtn">Use as bill total</button>
+    </div>
+    <p class="hint">Plain arithmetic. + VAT and − VAT use the VAT % in the bill.</p>
+  </aside>
 
   <template id="lineTpl">
     <article class="line">

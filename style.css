@@ -302,3 +302,66 @@ button:active { transform: scale(0.99); }
 .cand strong { font-size: 1rem; font-variant-numeric: tabular-nums; }
 .cand span { font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .cand:active { background: var(--soft); }
+
+/* VAT mode, ledger total, topbar buttons */
+.ledger .wide { grid-column: 1 / -1; }
+.topbar-btns { display: flex; gap: 8px; }
+
+/* Side calculator: bottom sheet on phones, floating panel on laptops */
+.calc {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  max-height: 82vh;
+  overflow: auto;
+  background: var(--paper);
+  border: 2px solid var(--line);
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.18);
+}
+.calc-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 1rem; }
+.calc-screen {
+  background: var(--soft);
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  min-height: 92px;
+  text-align: right;
+}
+.calc-prev { margin: 0; min-height: 1.3em; color: var(--muted); font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+.calc-now { margin: 0; font-size: 1.9rem; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.calc-keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.calc-keys button {
+  min-height: 52px;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 1.15rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.calc-keys button:active { background: var(--soft); }
+.calc-keys .k-op { background: var(--soft); }
+.calc-keys .k-eq { background: var(--ink); color: #fff; }
+.calc-keys .k-wide { grid-column: span 2; font-size: 1rem; }
+.calc-keys .k-all { grid-column: 1 / -1; background: var(--accent); border-color: var(--accent); color: #fff; font-size: 1rem; }
+.calc .hint { margin: 10px 0 0; }
+
+@media (min-width: 900px) {
+  .calc {
+    top: 96px;
+    right: 24px;
+    left: auto;
+    bottom: auto;
+    width: 340px;
+    max-height: calc(100vh - 120px);
+    border-radius: var(--radius);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+  }
+}

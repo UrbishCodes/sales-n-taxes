@@ -1,4 +1,5 @@
-/* Counter sales: one bill, one or many items. Uses window.Solver (solver.js). Works offline. */
+/* Counter sales: one bill, one or many items, VAT included or excluded, plus a side calculator.
+ * Uses window.Solver (solver.js). Works offline. */
 (function () {
   'use strict';
 
@@ -16,9 +17,28 @@
     OVER_TAX: 'OVER TAX: margin above 7%',
     NONE: 'no buy cost entered'
   };
+  var MODE_TEXT = {
+    incl: {
+      label: 'Total paid, incl. VAT (NPR)',
+      placeholder: 'e.g. 7500',
+      hint: 'Type what the customer paid. Taxable base and VAT are worked out from it.',
+      items: 'Type the count or the rate. The other box follows, and the total stays the same. One line absorbs the rest.',
+      use: 'bill total'
+    },
+    excl: {
+      label: 'Taxable amount, before VAT (NPR)',
+      placeholder: 'blank = build from items',
+      hint: 'Type the taxable amount, or leave it blank and build the bill from the items. VAT is added on top.',
+      items: 'Type the count or the rate. The other box follows. One line absorbs the rest of the taxable amount.',
+      itemsBuild: 'No taxable amount typed, so no line absorbs. Lines are priced as entered, then VAT is added on top.',
+      use: 'taxable amount'
+    }
+  };
 
-  var st = { lines: [], absorber: null, seq: 0 };
+  var st = { lines: [], absorber: null, seq: 0, mode: 'incl', lastAbs: null, prev: null,
+             calc: { expr: '', fresh: false, err: false } };
   var nf = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  var nfCalc = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 4 });
   var toastTimer = null;
 
   function $(id) { return document.getElementById(id); }
@@ -42,6 +62,13 @@
     t.classList.add('show');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { t.classList.remove('show'); }, 1800);
+  }
+  function setPressed(nodes, key, value) {
+    for (var i = 0; i < nodes.length; i++) {
+      var on = nodes[i].dataset[key] === value;
+      nodes[i].classList.toggle('active', on);
+      nodes[i].setAttribute('aria-checked', on ? 'true' : 'false');
+    }
   }
 
   // ---------- lines ----------
@@ -115,14 +142,6 @@
   }
 
   // ---------- rendering ----------
-
-  function setPressed(nodes, key, value) {
-    for (var i = 0; i < nodes.length; i++) {
-      var on = nodes[i].dataset[key] === value;
-      nodes[i].classList.toggle('active', on);
-      nodes[i].setAttribute('aria-checked', on ? 'true' : 'false');
-    }
-  }
 
   function buildKeys(card, unit) {
     var box = card.querySelector('.count-keys');
@@ -224,11 +243,34 @@
     $('totals').appendChild(d);
   }
 
+  // Bill card: labels, mode buttons, ledger and formula, from the mode.
+  function renderModeUI(res, G, V) {
+    var m = MODE_TEXT[st.mode];
+    setPressed($('modeBtns').querySelectorAll('.b-mode'), 'mode', st.mode);
+    $('grossLabel').textContent = m.label;
+    $('gross').placeholder = m.placeholder;
+    $('modeHint').textContent = m.hint;
+    $('useCalcBtn').textContent = 'Use as ' + m.use;
+
+    var hasBase = isFinite(res.base);
+    $('baseOut').textContent = hasBase ? fmt(res.base) : '—';
+    $('vatOut').textContent = hasBase ? fmt(res.vat) : '—';
+    $('totalOut').textContent = hasBase ? fmt(res.billTotal / 100) : '—';
+
+    var f = '';
+    if (st.mode === 'incl') {
+      if (G > 0 && V >= 0) f = 'Taxable base = ' + fmt(G) + ' ÷ (1 + ' + V + '%). VAT = total − base.';
+    } else if (hasBase) {
+      f = res.hasTarget
+        ? 'VAT = ' + fmt(res.base) + ' × ' + V + '%. Total = base + VAT.'
+        : 'Built from items. VAT = ' + fmt(res.base) + ' × ' + V + '%. Total = base + VAT.';
+    }
+    $('formula').textContent = f;
+  }
+
   function renderResult(res, G, V) {
-    var haveBill = G > 0 && V >= 0;
-    $('baseOut').textContent = haveBill ? fmt(res.base) : '—';
-    $('vatOut').textContent = haveBill ? fmt(res.vat) : '—';
-    $('formula').textContent = haveBill ? 'Taxable base = ' + fmt(G) + ' ÷ (1 + ' + V + '%)' : '';
+    var excl = st.mode === 'excl';
+    var hasBase = isFinite(res.base);
 
     var box = $('resRows');
     box.innerHTML = '';
@@ -248,14 +290,14 @@
 
     var tot = $('totals');
     tot.innerHTML = '';
-    if (haveBill && res.ok) {
+    if (hasBase) {
       var sign = res.variance > 0 ? '+' : (res.variance < 0 ? '−' : '');
-      addTot('Taxable base (G ÷ (1 + V%))', fmt(res.base));
+      addTot('Taxable base', fmt(res.base));
       addTot('Lines total', fmt(res.total / 100));
-      addTot('Variance', sign + fmt(Math.abs(res.variance) / 100));
+      if (res.hasTarget) addTot('Variance', sign + fmt(Math.abs(res.variance) / 100));
       addTot('VAT ' + V + '%', fmt(res.vat));
-      addTot('Bill total (lines + VAT)', fmt((res.total + S.toPaisa(res.vat)) / 100));
-      addTot('Bill total entered', fmt(G));
+      addTot('Lines + VAT', fmt((res.total + S.toPaisa(res.vat)) / 100));
+      addTot(excl ? 'Total incl. VAT' : 'Bill total', fmt(res.billTotal / 100));
     }
 
     var status = $('status');
@@ -263,14 +305,21 @@
       return !r.error && (r.flag === 'LOSS' || r.flag === 'OVER_TAX' || r.aboveMax);
     }).length;
     var text, tone;
-    if (!haveBill) { text = 'Enter the bill total.'; tone = ''; }
+    if (!res.ok && excl === false && !(G > 0)) { text = 'Enter the bill total.'; tone = ''; }
     else if (!res.ok) { text = res.msg; tone = 'bad'; }
-    else if (res.variance === 0) { text = 'Exact. Lines + VAT = NPR ' + fmt(G) + '.'; tone = 'ok'; }
-    else {
+    else if (!res.hasTarget) {
+      text = 'Built from items. Taxable NPR ' + fmt(res.base) + '. Total incl. VAT NPR ' + fmt(res.billTotal / 100) + '.';
+      tone = 'ok';
+    } else if (res.variance === 0) {
+      text = excl
+        ? 'Exact. Lines = taxable NPR ' + fmt(res.base) + '. Total incl. VAT NPR ' + fmt(res.billTotal / 100) + '.'
+        : 'Exact. Lines + VAT = NPR ' + fmt(G) + '.';
+      tone = 'ok';
+    } else {
       text = 'Off by NPR ' + fmt(Math.abs(res.variance) / 100) + '.';
       tone = 'warn';
     }
-    if (haveBill && res.ok && flagged) {
+    if (res.ok && flagged) {
       text += ' ' + flagged + ' line(s) outside band or above max rate.';
       if (tone === 'ok') tone = 'warn';
     }
@@ -278,7 +327,7 @@
     status.className = 'status ' + tone;
 
     var out = [];
-    if (haveBill && res.ok) {
+    if (hasBase && res.ok) {
       res.rows.forEach(function (r, i) {
         if (r.error) return;
         out.push((r.name || ('Item ' + (i + 1))) + ': ' + fmtCount(r.qty) + ' ' + WORD[r.unit] +
@@ -286,18 +335,18 @@
       });
       out.push('Taxable total NPR ' + fmt(res.total / 100));
       out.push('VAT ' + V + '% NPR ' + fmt(res.vat));
-      out.push('Bill total NPR ' + fmt(G));
+      out.push((excl ? 'Bill total incl. VAT NPR ' : 'Bill total NPR ') + fmt(res.billTotal / 100));
     }
     $('billing').value = out.join('\n');
     $('absNone').checked = st.absorber === 'none';
   }
 
-  // The old absorber stops absorbing (radio changed, or a new default). Its computed box
-  // becomes typed, so the screen and the pricing agree.
-  function commitShown(G, V, id) {
+  // The old absorber stops absorbing (radio changed, a new default, or the taxable amount was
+  // cleared). Its computed box becomes typed, so the screen and the pricing agree.
+  function commitShown(G, V, id, mode) {
     var l = findLine(id);
     if (!l) return;
-    var r = S.solveBill(G, V, st.lines, id);
+    var r = S.solveBill(G, V, st.lines, id, mode);
     var row = null;
     r.rows.forEach(function (x) { if (x.id === id) row = x; });
     if (!row || row.error) return;
@@ -307,12 +356,80 @@
 
   function render() {
     var G = num($('gross')), V = num($('vat'));
-    var absId = effectiveAbsorber();
-    if (st.lastAbs && st.lastAbs !== absId) commitShown(G, V, st.lastAbs);
+    var mode = st.mode;
+    var needAbs = !(mode === 'excl' && !(G > 0));
+    var absId = needAbs ? effectiveAbsorber() : null;
+    if (st.lastAbs && st.lastAbs !== absId && st.prev) commitShown(st.prev.G, st.prev.V, st.lastAbs, st.prev.mode);
     st.lastAbs = absId;
-    var res = S.solveBill(G, V, st.lines, absId);
+    st.prev = { G: G, V: V, mode: mode };
+
+    $('absBox').hidden = !needAbs;
+    $('itemsHint').textContent = needAbs ? MODE_TEXT[mode].items : MODE_TEXT[mode].itemsBuild;
+
+    var res = S.solveBill(G, V, st.lines, absId, mode);
     st.lines.forEach(function (l, i) { renderCard(l, res.rows[i], absId, res); });
+    renderModeUI(res, G, V);
     renderResult(res, G, V);
+  }
+
+  // ---------- side calculator ----------
+
+  function prettyExpr(e) { return e.replace(/\*/g, '×').replace(/\//g, '÷'); }
+  function vatPct() { var v = num($('vat')); return v >= 0 ? v : 0; }
+
+  function renderCalc() {
+    var c = st.calc;
+    var now = $('calcNow'), prev = $('calcPrev');
+    if (c.err) { now.textContent = 'Error'; prev.textContent = ''; return; }
+    now.textContent = c.expr === '' ? '0' : prettyExpr(c.expr);
+    var v = (c.expr === '' || c.fresh) ? NaN : S.evalExpr(c.expr);
+    prev.textContent = isNaN(v) ? '' : '= ' + nfCalc.format(v);
+  }
+
+  function calcKey(k) {
+    var c = st.calc;
+    if (k === 'C') { c.expr = ''; c.fresh = false; c.err = false; }
+    else if (k === 'DEL') {
+      c.expr = c.fresh ? '' : c.expr.slice(0, -1);
+      c.fresh = false;
+      c.err = false;
+    } else if (k === '=') {
+      var v = S.evalExpr(c.expr);
+      c.err = isNaN(v);
+      c.expr = c.err ? '' : String(S.roundTo(v, 8));
+      c.fresh = true;
+    } else if (k === 'ADDVAT' || k === 'REMVAT') {
+      if (c.expr === '') { toast('Enter a value first.'); return; }
+      var base = S.evalExpr(c.expr);
+      c.err = isNaN(base);
+      if (!c.err) {
+        var p = vatPct();
+        var nv = k === 'ADDVAT' ? base * (1 + p / 100) : base / (1 + p / 100);
+        c.expr = String(S.roundTo(nv, 8));
+        c.fresh = true;
+      }
+    } else if (k === 'USE') {
+      var u = c.expr === '' ? NaN : S.evalExpr(c.expr);
+      if (!(u > 0)) { toast('Enter a value first.'); return; }
+      $('gross').value = String(S.roundTo(u, 2));
+      toast('Set as ' + MODE_TEXT[st.mode].use + '.');
+      render();
+      return;
+    } else {
+      c.err = false;
+      if (c.fresh && /[0-9.(]/.test(k)) c.expr = '';
+      c.fresh = false;
+      c.expr += k;
+    }
+    renderCalc();
+  }
+
+  function toggleCalc(force) {
+    var panel = $('calcPanel');
+    var open = typeof force === 'boolean' ? force : panel.hidden;
+    panel.hidden = !open;
+    $('calcBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) renderCalc();
   }
 
   // ---------- events ----------
@@ -359,6 +476,10 @@
     if (t.id === 'addLine') { addLine(); render(); return; }
     if (t.id === 'resetBtn') { resetAll(); return; }
     if (t.id === 'copyBtn') { copyText(); return; }
+    if (t.id === 'calcBtn') { toggleCalc(); return; }
+    if (t.id === 'calcClose') { toggleCalc(false); return; }
+    if (t.dataset.calc !== undefined) { calcKey(t.dataset.calc); return; }
+    if (t.classList.contains('b-mode')) { st.mode = t.dataset.mode; render(); return; }
 
     var card = t.closest('.line');
     var l = card ? findLine(card.dataset.id) : null;
@@ -391,6 +512,7 @@
     st.lines = [];
     st.absorber = null;
     st.lastAbs = null;
+    st.prev = null;
     addLine();
     $('gross').value = '';
     $('vat').value = VAT_DEFAULT;
@@ -426,6 +548,7 @@
     document.addEventListener('click', onClick);
     document.addEventListener('focusin', onFocusIn);
     render();
+    renderCalc();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

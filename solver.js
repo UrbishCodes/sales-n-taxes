@@ -1,13 +1,17 @@
-/* Counter sales: pure rules for one bill, one or many items. No DOM.
+/* Counter sales: pure rules for one bill, one or many items, and a plain calculator. No DOM.
  * Browser: window.Solver. Node tests: require().
  *
- * Bill: gross G (VAT inclusive), VAT V%. Taxable base X = G / (1 + V%).
- * Line amounts (paisa) add up to X exactly. One absorbing line takes the rest.
+ * VAT modes:
+ *   incl (default): bill total G is VAT inclusive. Taxable base X = G / (1 + V%). VAT = G - X.
+ *   excl:           taxable amount T is typed (or built from the items). VAT = T x V%. Total = T + VAT.
+ * Line amounts (paisa) add up to the taxable amount exactly. One absorbing line takes the rest.
  * On the absorbing line the user fixes one box and the other adjusts:
  *   pcs / dozen: fix count -> rate absorbs
  *                fix rate  -> count suggested (nearest whole or half), rate absorbs
  *   kg:          fix rate  -> weight absorbs (3 dp first)
  *                fix weight -> rate absorbs
+ * Excl mode with no taxable amount typed: no absorber. Lines are priced as entered and the bill
+ * is built from them (taxable = sum of lines, then VAT on top).
  */
 (function (root) {
   'use strict';
@@ -25,9 +29,20 @@
   // Money in paisa (integer), after removing float noise.
   function toPaisa(x) { return Math.round(Math.round(x * 1e6) / 1e4); }
 
+  // VAT inclusive: base = G / (1 + V%).
   function taxable(G, V) {
     var base = round2(G / (1 + V / 100));
     return { base: base, vat: round2(G - base) };
+  }
+
+  // Taxable base and VAT for a typed amount, by mode. incl: amount is the total. excl: amount is the base.
+  function taxableOf(amount, V, mode) {
+    if (mode === 'excl') {
+      var base = round2(amount);
+      return { base: base, vat: round2(base * V / 100), total: round2(base + round2(base * V / 100)) };
+    }
+    var t = taxable(amount, V);
+    return { base: t.base, vat: t.vat, total: amount };
   }
 
   function stepOf(unit) { return unit === 'doz' ? 0.5 : 1; }
@@ -164,20 +179,21 @@
 
   // lines: [{id, name, unit, count, std, buy, rate, fixed}]
   // absorberId: line that takes the rest, or null (then the variance shows).
-  function solveBill(G, V, lines, absorberId) {
-    var haveBill = G > 0 && V >= 0;
-    var t = haveBill ? taxable(G, V) : { base: NaN, vat: NaN };
-    var out = { ok: false, msg: '', G: G, V: V, base: t.base, vat: t.vat, X: NaN,
-                remP: NaN, rows: [], total: 0, variance: 0 };
-    if (!(G > 0)) { out.msg = 'Enter the bill total.'; return out; }
+  // mode: 'incl' (default) or 'excl'. In excl, G is the taxable amount; NaN or 0 means build from items.
+  function solveBill(G, V, lines, absorberId, mode) {
+    var excl = mode === 'excl';
+    var out = { ok: false, msg: '', mode: excl ? 'excl' : 'incl', hasTarget: false, G: G, V: V,
+                base: NaN, vat: NaN, billTotal: NaN, X: NaN, remP: NaN, rows: [], total: 0, variance: 0 };
     if (!(V >= 0)) { out.msg = 'Enter the VAT %.'; return out; }
+    if (!excl && !(G > 0)) { out.msg = 'Enter the bill total.'; return out; }
     if (!lines.length) { out.msg = 'Add at least one item.'; return out; }
 
-    var X = toPaisa(t.base);
-    out.X = X;
+    var hasTarget = !excl || G > 0;
+    out.hasTarget = hasTarget;
+    var target = hasTarget ? toPaisa(taxableOf(G, V, out.mode).base) : null;
 
     var absorber = null;
-    lines.forEach(function (l) { if (l.id === absorberId) absorber = l; });
+    if (hasTarget) lines.forEach(function (l) { if (l.id === absorberId) absorber = l; });
 
     var rows = lines.map(function (l) {
       return { id: l.id, name: l.name, unit: l.unit, qty: l.count, rate: NaN, std: l.std, buy: l.buy,
@@ -199,10 +215,10 @@
       fixed += row.sub;
     });
 
-    // 2. Absorber takes the rest of X.
+    // 2. Absorber takes the rest of the target.
     if (absorber) {
       var row = rows[lines.indexOf(absorber)];
-      var rem = X - fixed;
+      var rem = target - fixed;
       var rateVal = effRate(absorber);
       var rateFixed = fixedOf(absorber) === 'rate' && rateVal > 0;
       var err2 = null;
@@ -233,7 +249,7 @@
 
     // 3. Close a paisa gap on a count-1 line: its rate moves by the gap, never above max.
     var total = sumSubs(rows);
-    var resid = X - total;
+    var resid = (target === null ? 0 : target) - total;
     if (absorber && resid !== 0 && !errors.length) {
       var fix = fixerRow(rows);
       if (fix) {
@@ -258,10 +274,74 @@
 
     out.rows = rows;
     out.total = total;
-    out.variance = total - X;
     out.ok = errors.length === 0;
     out.msg = errors.length ? errors[0] : '';
+    out.X = target === null ? total : target;
+    out.variance = target === null ? 0 : total - target;
+
+    // Taxable base, VAT, bill total. Without a target and with errors, the base is unknown.
+    if (target === null && !out.ok) return out;
+    var baseRup = roundTo(out.X / 100, 2);
+    out.base = baseRup;
+    if (excl) {
+      out.vat = round2(baseRup * V / 100);
+      out.billTotal = out.X + toPaisa(out.vat);
+    } else {
+      out.vat = round2(G - baseRup);
+      out.billTotal = toPaisa(G);
+    }
     return out;
+  }
+
+  // Plain arithmetic: numbers, + - * /, parentheses, unary minus. Returns NaN on error.
+  // Trailing operators are ignored (so "5*" reads as 5). No eval.
+  function evalExpr(src) {
+    var s = String(src == null ? '' : src).replace(/×/g, '*').replace(/÷/g, '/').replace(/\s+/g, '');
+    s = s.replace(/[+\-*\/]+$/, '');
+    if (!s) return NaN;
+    var toks = s.match(/\d+\.?\d*|\.\d+|[+\-*\/()]/g);
+    if (!toks || toks.join('') !== s) return NaN;
+    var i = 0;
+    function primary() {
+      var t = toks[i];
+      if (t === '(') {
+        i++;
+        var v = expr();
+        if (toks[i] !== ')') throw new Error('paren');
+        i++;
+        return v;
+      }
+      if (/^(\d|\.)/.test(t)) { i++; return Number(t); }
+      throw new Error('token');
+    }
+    function unary() {
+      if (toks[i] === '-') { i++; return -unary(); }
+      if (toks[i] === '+') { i++; return unary(); }
+      return primary();
+    }
+    function term() {
+      var v = unary();
+      while (toks[i] === '*' || toks[i] === '/') {
+        var op = toks[i++], r = unary();
+        v = op === '*' ? v * r : v / r;
+      }
+      return v;
+    }
+    function expr() {
+      var v = term();
+      while (toks[i] === '+' || toks[i] === '-') {
+        var op = toks[i++], r = term();
+        v = op === '+' ? v + r : v - r;
+      }
+      return v;
+    }
+    try {
+      var result = expr();
+      if (i !== toks.length || !isFinite(result)) return NaN;
+      return result;
+    } catch (e) {
+      return NaN;
+    }
   }
 
   var api = {
@@ -269,6 +349,7 @@
     round2: round2,
     toPaisa: toPaisa,
     taxable: taxable,
+    taxableOf: taxableOf,
     solveKgQty: solveKgQty,
     countError: countError,
     bandStatus: bandStatus,
@@ -279,6 +360,7 @@
     exactCounts: exactCounts,
     defaultAbsorber: defaultAbsorber,
     solveBill: solveBill,
+    evalExpr: evalExpr,
     BAND_LOW: BAND_LOW,
     BAND_HIGH: BAND_HIGH
   };
