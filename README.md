@@ -50,7 +50,9 @@ Profit band over buy cost:
 Each line is priced at its max sell rate with the count entered. A rate can be typed over (an override). An override is held until you tap "Use max rate again".
 
 ### 2.3 One absorbing line takes the rest
-The bill has one **absorber** line. Its amount is the taxable base minus the total of the other lines.
+Absorbing is **off by default**. Nobody absorbs: each line is priced as typed, and the status shows any variance.
+
+Turn on **"Let one line absorb the rest"** to pick one line as the **absorber**. Its amount is the taxable base minus the total of the other lines. Tick a line to make it the absorber. Untick it to go back to nobody absorbing. The switch stays on until you turn it off.
 
 | Absorber | What adjusts | How |
 |---|---|---|
@@ -64,7 +66,7 @@ The bill has one **absorber** line. Its amount is the taxable base minus the tot
 3. Fewer decimals.
 4. The smaller gap.
 
-**Default absorber.** A line with no count typed yet (it suggests its own count). Otherwise the pcs or dozen line with the smallest count, because a count of 1 keeps the rate exact to the paisa. Otherwise the first kg line, because a typed weight can leave a gap. You can pick any line, or "Nobody" to see the variance. When the absorber changes, its computed box is kept as typed on the screen, so the screen and the pricing agree.
+**Default absorber.** A line with no count typed yet (it suggests its own count). Otherwise the pcs or dozen line with the smallest count, because a count of 1 keeps the rate exact to the paisa. Otherwise the first kg line, because a typed weight can leave a gap. With absorb on and no line ticked, the default line takes the rest. Tick another line to change it. When the absorber changes, its computed box is kept as typed on the screen, so the screen and the pricing agree.
 
 ### 2.3a Single bill: the fixed box
 On the absorber line, one box is **fixed** and the other follows. Typing in either box makes that box the fixed one.
@@ -112,7 +114,7 @@ A plain calculator for any other sum: + − × ÷ and brackets. "+ VAT" and "−
 
 1. Choose VAT included (default) or VAT excluded. Enter the total paid, or the taxable amount for VAT excluded (leave it blank to build from the items).
 2. Add an item. Choose the unit (Pcs, Dozen or Kg). Type the count or the rate; the other box follows so the total stays the same. Buy cost is optional and turns on the band check.
-3. Check the absorber. Change it if the default is not the line you want.
+3. Turn on absorb only if one line should take the rest. Otherwise leave it off, and check the variance.
 4. Check the status says **Exact**. Copy the billing lines.
 5. Tap **Reset** for the next customer.
 

@@ -22,20 +22,22 @@
       label: 'Total paid, incl. VAT (NPR)',
       placeholder: 'e.g. 7500',
       hint: 'Type what the customer paid. Taxable base and VAT are worked out from it.',
-      items: 'Type the count or the rate. The other box follows, and the total stays the same. One line absorbs the rest.',
       use: 'bill total'
     },
     excl: {
       label: 'Taxable amount, before VAT (NPR)',
       placeholder: 'blank = build from items',
       hint: 'Type the taxable amount, or leave it blank and build the bill from the items. VAT is added on top.',
-      items: 'Type the count or the rate. The other box follows. One line absorbs the rest of the taxable amount.',
-      itemsBuild: 'No taxable amount typed, so no line absorbs. Lines are priced as entered, then VAT is added on top.',
       use: 'taxable amount'
     }
   };
+  var ITEMS_TEXT = {
+    off: 'Each line is priced as typed. Turn on absorb to let one line take the rest of the total.',
+    on: 'Type the count or the rate. The other box follows, and the total stays the same. The ticked line takes the rest.',
+    build: 'No taxable amount typed, so no line absorbs. Lines are priced as entered, then VAT is added on top.'
+  };
 
-  var st = { lines: [], absorber: null, seq: 0, mode: 'incl', lastAbs: null, prev: null,
+  var st = { lines: [], absorber: null, absOn: false, seq: 0, mode: 'incl', lastAbs: null, prev: null,
              calc: { expr: '', fresh: false, err: false } };
   var nf = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   var nfCalc = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 4 });
@@ -83,8 +85,9 @@
   }
   function cardFor(id) { return document.querySelector('#lines .line[data-id="' + id + '"]'); }
 
+  // Nobody absorbs unless the absorb switch is on. Then the ticked line, else the default line.
   function effectiveAbsorber() {
-    if (st.absorber === 'none') return null;
+    if (!st.absOn || st.absorber === 'none') return null;
     if (st.absorber && findLine(st.absorber)) return st.absorber;
     return S.defaultAbsorber(st.lines);
   }
@@ -212,6 +215,9 @@
     if (row && row.error) {
       text = row.error;
       tone = 'bad';
+      if (!st.absOn && row.error === 'Enter the count.' && l.rate > 0) {
+        text += ' Or turn on absorb to let the rate suggest it.';
+      }
     } else if (row) {
       var parts = [];
       if (rateFixed) {
@@ -338,7 +344,6 @@
       out.push((excl ? 'Bill total incl. VAT NPR ' : 'Bill total NPR ') + fmt(res.billTotal / 100));
     }
     $('billing').value = out.join('\n');
-    $('absNone').checked = st.absorber === 'none';
   }
 
   // The old absorber stops absorbing (radio changed, a new default, or the taxable amount was
@@ -364,10 +369,20 @@
     st.prev = { G: G, V: V, mode: mode };
 
     $('absBox').hidden = !needAbs;
-    $('itemsHint').textContent = needAbs ? MODE_TEXT[mode].items : MODE_TEXT[mode].itemsBuild;
+    $('absOn').checked = st.absOn;
+    var pickOn = st.absOn && needAbs;
+    $('absHint').textContent = !st.absOn
+      ? 'Nobody absorbs. Each line is priced as typed, and the variance shows.'
+      : (absId
+        ? 'The ticked line takes the rest. Untick it to let nobody absorb.'
+        : 'Nobody absorbs now. Tick a line to let it take the rest.');
+    $('itemsHint').textContent = !needAbs ? ITEMS_TEXT.build : (pickOn ? ITEMS_TEXT.on : ITEMS_TEXT.off);
 
     var res = S.solveBill(G, V, st.lines, absId, mode);
-    st.lines.forEach(function (l, i) { renderCard(l, res.rows[i], absId, res); });
+    st.lines.forEach(function (l, i) {
+      cardFor(l.id).querySelector('.absorb-pick').hidden = !pickOn;
+      renderCard(l, res.rows[i], absId, res);
+    });
     renderModeUI(res, G, V);
     renderResult(res, G, V);
   }
@@ -438,6 +453,8 @@
   // Other lines keep both values as typed.
   function onInput(e) {
     var t = e.target;
+    // Checkboxes and radios are handled in onChange. Re-rendering here would reset them first.
+    if (t.type === 'checkbox' || t.type === 'radio') return;
     var card = t.closest ? t.closest('.line') : null;
     var l = card ? findLine(card.dataset.id) : null;
     if (l) {
@@ -458,9 +475,17 @@
     render();
   }
 
+  // Switch on: the default line takes the rest. Switch off: nobody. A ticked line picks it;
+  // unticking it leaves nobody absorbing, and the switch stays on.
   function onChange(e) {
-    if (e.target.name === 'absorber') {
-      st.absorber = e.target.value;
+    var t = e.target;
+    if (t.id === 'absOn') {
+      st.absOn = t.checked;
+      st.absorber = null;
+      render();
+    } else if (t.classList.contains('r-absorb')) {
+      var card = t.closest('.line');
+      st.absorber = t.checked && card ? card.dataset.id : 'none';
       render();
     }
   }
@@ -511,6 +536,7 @@
     $('lines').innerHTML = '';
     st.lines = [];
     st.absorber = null;
+    st.absOn = false;
     st.lastAbs = null;
     st.prev = null;
     addLine();

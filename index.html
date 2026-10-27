@@ -50,15 +50,13 @@
 
       <section class="card" aria-labelledby="s2">
         <h2 id="s2"><span class="num">2</span> Items</h2>
-        <p class="hint" id="itemsHint">Type the count or the rate. The other box follows, and the total stays the same. One line absorbs the rest.</p>
+        <p class="hint" id="itemsHint">Each line is priced as typed. Turn on absorb to let one line take the rest of the total.</p>
         <div id="absBox">
-          <fieldset class="absorb-bill">
-            <legend>Who absorbs the rest?</legend>
-            <label class="absorb-pick">
-              <input type="radio" name="absorber" value="none" id="absNone" />
-              <span>Nobody, show the variance</span>
-            </label>
-          </fieldset>
+          <label class="absorb-pick absorb-switch">
+            <input type="checkbox" id="absOn" />
+            <span>Let one line absorb the rest</span>
+          </label>
+          <p class="hint" id="absHint">Nobody absorbs. Each line is priced as typed, and the variance shows.</p>
         </div>
         <div id="lines"></div>
         <button type="button" class="secondary" id="addLine">+ Add item</button>
@@ -127,7 +125,7 @@
     <article class="line">
       <div class="line-head">
         <label class="absorb-pick">
-          <input type="radio" name="absorber" class="r-absorb" />
+          <input type="checkbox" class="r-absorb" />
           <span>Absorbs the rest</span>
         </label>
         <button type="button" class="link b-remove">Remove</button>

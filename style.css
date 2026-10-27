@@ -365,3 +365,6 @@ button:active { transform: scale(0.99); }
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
   }
 }
+
+/* Absorb switch (default off) */
+.absorb-switch { margin: 0 0 6px; }
