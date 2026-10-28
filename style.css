@@ -368,3 +368,43 @@ button:active { transform: scale(0.99); }
 
 /* Absorb switch (default off) */
 .absorb-switch { margin: 0 0 6px; }
+
+/* Item name box with the stock-summary list */
+.name-box { position: relative; }
+.suggest {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 15;
+  margin-top: 4px;
+  max-height: 260px;
+  overflow: auto;
+  background: #fff;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
+}
+.sug {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 0;
+  border-top: 1px solid #d5d9e0;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sug:first-child { border-top: 0; }
+.sug strong { font-size: 1rem; }
+.sug span { font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sug:active, .sug.on { background: var(--soft); outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.stock { margin: -6px 0 12px; font-size: 0.82rem; color: var(--muted); }
+.line-head { display: flex; justify-content: flex-end; margin-bottom: 6px; }

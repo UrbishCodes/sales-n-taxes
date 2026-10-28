@@ -1,16 +1,16 @@
-/* Counter sales: one bill, one or many items, VAT included or excluded, plus a side calculator.
- * Uses window.Solver (solver.js). Works offline. */
+/* Counter sales: one bill, many items, VAT included or excluded, item list from the stock summary,
+ * plus a side calculator. Uses window.Solver (solver.js) and window.Catalog (items.js). Works offline. */
 (function () {
   'use strict';
 
   var S = window.Solver;
+  var ITEMS = (window.Catalog && window.Catalog.ITEMS) || [];
   var VAT_DEFAULT = '13';
   var WORD = { pcs: 'pcs', doz: 'doz', kg: 'kg' };
   var PER = { pcs: 'pc', doz: 'dozen', kg: 'kg' };
   var KEYS = { pcs: [-1, 1, 10], doz: [-0.5, 0.5, 1], kg: [] };
   var MIN = { pcs: 1, doz: 0.5, kg: 0 };
   var COUNT_LABEL = { pcs: 'Count (pcs)', doz: 'Count (dozens)', kg: 'Weight (kg)' };
-  var FIX_LABEL = { pcs: 'Count', doz: 'Count', kg: 'Weight' };
   var FLAG_TEXT = {
     OK: 'margin inside 5–7% band',
     LOSS: 'LOSS: margin below 5%',
@@ -31,13 +31,8 @@
       use: 'taxable amount'
     }
   };
-  var ITEMS_TEXT = {
-    off: 'Each line is priced as typed. Turn on absorb to let one line take the rest of the total.',
-    on: 'Type the count or the rate. The other box follows, and the total stays the same. The ticked line takes the rest.',
-    build: 'No taxable amount typed, so no line absorbs. Lines are priced as entered, then VAT is added on top.'
-  };
 
-  var st = { lines: [], absorber: null, absOn: false, seq: 0, mode: 'incl', lastAbs: null, prev: null,
+  var st = { lines: [], seq: 0, mode: 'incl', sug: { line: null, items: [], idx: 0 },
              calc: { expr: '', fresh: false, err: false } };
   var nf = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   var nfCalc = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 4 });
@@ -46,6 +41,7 @@
   function $(id) { return document.getElementById(id); }
   function fmt(n) { return nf.format(n); }
   function trimNum(n, d) { return String(Number(n.toFixed(d))); }
+  function fmtCount(n) { return trimNum(n, 3); }
   function num(el) { var s = el.value.trim(); return s === '' ? NaN : Number(s); }
   function setIfIdle(el, v) { if (document.activeElement !== el) el.value = v; }
   function mk(tag, cls, text) {
@@ -77,28 +73,24 @@
 
   function newLine() {
     st.seq += 1;
-    return { id: 'L' + st.seq, name: '', unit: 'pcs', count: NaN, std: NaN, buy: NaN, rate: NaN, fixed: undefined };
+    // rate NaN = not typed, so the line uses its max sell rate (std).
+    return { id: 'L' + st.seq, name: '', item: null, unit: 'pcs', count: NaN, std: NaN, buy: NaN, rate: NaN };
   }
   function findLine(id) {
     for (var i = 0; i < st.lines.length; i++) if (st.lines[i].id === id) return st.lines[i];
     return null;
   }
   function cardFor(id) { return document.querySelector('#lines .line[data-id="' + id + '"]'); }
-
-  // Nobody absorbs unless the absorb switch is on. Then the ticked line, else the default line.
-  function effectiveAbsorber() {
-    if (!st.absOn || st.absorber === 'none') return null;
-    if (st.absorber && findLine(st.absorber)) return st.absorber;
-    return S.defaultAbsorber(st.lines);
+  function lineOf(el) {
+    var card = el.closest ? el.closest('.line') : null;
+    return card ? findLine(card.dataset.id) : null;
   }
-  function isAbsorber(l) { return effectiveAbsorber() === l.id; }
 
   function addLine() {
     var l = newLine();
     st.lines.push(l);
     var card = $('lineTpl').content.firstElementChild.cloneNode(true);
     card.dataset.id = l.id;
-    card.querySelector('.r-absorb').value = l.id;
     $('lines').appendChild(card);
   }
 
@@ -106,8 +98,36 @@
     var card = cardFor(l.id);
     if (card) card.remove();
     st.lines = st.lines.filter(function (x) { return x.id !== l.id; });
-    if (st.absorber === l.id) st.absorber = null;
+    if (st.sug.line === l.id) st.sug = { line: null, items: [], idx: 0 };
     if (!st.lines.length) addLine();
+  }
+
+  // Fill the line from a stock-summary item. Rate goes back to max.
+  function applyItem(l, item) {
+    if (l.unit !== item.unit) l.count = NaN;
+    l.name = item.name;
+    l.item = item;
+    l.unit = item.unit;
+    l.std = item.rate;
+    l.buy = item.buy == null ? NaN : item.buy;
+    l.rate = NaN;
+  }
+
+  function showList(l, text) {
+    var items = S.matchItems(ITEMS, text, 12);
+    st.sug = { line: items.length ? l.id : null, items: items, idx: 0 };
+  }
+
+  function pickAt(i) {
+    var l = findLine(st.sug.line);
+    var item = st.sug.items[i];
+    if (!l || !item) return;
+    applyItem(l, item);
+    st.sug = { line: null, items: [], idx: 0 };
+    var card = cardFor(l.id);
+    card.querySelector('.f-name').value = item.name;
+    render();
+    card.querySelector('.f-count').focus();
   }
 
   function setUnit(l, u) {
@@ -124,24 +144,13 @@
     l.unit = u;
     l.count = NaN;
     l.rate = NaN;
-    l.fixed = undefined;
-    var card = cardFor(l.id);
-    card.querySelector('.f-count').value = '';
-    card.querySelector('.f-rate').value = '';
-    card.querySelector('.f-std').value = isFinite(l.std) ? String(l.std) : '';
-    card.querySelector('.f-buy').value = isFinite(l.buy) ? String(l.buy) : '';
+    l.item = null;
   }
 
-  // Stepper: starts from the count shown (typed or computed), then fixes it.
-  function bump(l, countEl, d) {
+  function bump(l, d) {
     var step = l.unit === 'doz' ? 0.5 : 1;
-    var cur = num(countEl);
-    if (!(cur > 0)) cur = 0;
-    var next = Math.max(MIN[l.unit], Math.round((cur + d) / step) * step);
-    l.count = next;
-    l.fixed = 'count';
-    if (isAbsorber(l)) l.rate = NaN;
-    countEl.value = String(next);
+    var cur = l.count > 0 ? l.count : 0;
+    l.count = Math.max(MIN[l.unit], Math.round((cur + d) / step) * step);
   }
 
   // ---------- rendering ----------
@@ -159,76 +168,38 @@
     });
   }
 
-  function fmtCount(n) { return trimNum(n, 3); }
-
-  function renderCard(l, row, absId, res) {
+  function renderCard(l, row) {
     var card = cardFor(l.id);
     if (!card) return;
-    var isAbs = l.id === absId, kg = l.unit === 'kg';
-    var ok = !!row && !row.error;
-    var rateFixed = isAbs && !!row && row.fixedBy === 'rate';
-    var countFixed = isAbs && !!row && row.fixedBy === 'count';
-    var fixNow = row && row.fixedBy ? row.fixedBy : S.fixedOf(l);
+    var kg = l.unit === 'kg';
 
     setPressed(card.querySelectorAll('.b-unit'), 'unit', l.unit);
-    card.querySelector('.r-absorb').checked = isAbs;
     card.querySelector('.l-count').textContent = COUNT_LABEL[l.unit];
     card.querySelector('.l-rate').textContent = 'Rate (NPR per ' + PER[l.unit] + ')';
     card.querySelector('.l-std').textContent = 'Max rate (NPR per ' + PER[l.unit] + ')';
     buildKeys(card, l.unit);
+    card.querySelector('.count-keys').hidden = kg;
 
-    card.querySelector('.fixed-row').hidden = !isAbs;
-    card.querySelector('.b-fix[data-fix="count"]').textContent = FIX_LABEL[l.unit];
-    setPressed(card.querySelectorAll('.b-fix'), 'fix', fixNow);
-
-    // The box the user fixes keeps what was typed. The other box shows the computed value.
+    // Boxes show the typed value. The rate box shows the max rate until a rate is typed.
     var countEl = card.querySelector('.f-count'), rateEl = card.querySelector('.f-rate');
-    if (ok && rateFixed) setIfIdle(countEl, fmtCount(row.qty));
-    if (ok && countFixed) setIfIdle(rateEl, trimNum(row.rate, 2));
-    rateEl.placeholder = isFinite(l.std) ? String(l.std) : '';
-
+    setIfIdle(countEl, isFinite(l.count) ? fmtCount(l.count) : '');
+    setIfIdle(rateEl, l.rate > 0 ? trimNum(l.rate, 4) : (isFinite(l.std) ? trimNum(l.std, 4) : ''));
+    setIfIdle(card.querySelector('.f-std'), isFinite(l.std) ? trimNum(l.std, 4) : '');
+    setIfIdle(card.querySelector('.f-buy'), isFinite(l.buy) ? trimNum(l.buy, 4) : '');
     card.querySelector('.b-usemax').hidden = !(l.rate > 0);
 
-    // Count suggestions at the typed (or max) rate, with exact counts for this total.
-    var cands = card.querySelector('.cands');
-    cands.innerHTML = '';
-    var showC = rateFixed && !kg && row.typedRate > 0 && isFinite(res.remP);
-    cands.hidden = !showC;
-    if (showC) {
-      cands.appendChild(mk('p', 'hint', 'Counts that keep the total. Tap one to fix that count.'));
-      S.countOptions(l.unit, res.remP, row.typedRate).forEach(function (c) {
-        var b = mk('button', 'cand');
-        b.type = 'button';
-        b.dataset.count = String(c.count);
-        b.appendChild(mk('strong', '', fmtCount(c.count) + ' ' + WORD[l.unit]));
-        b.appendChild(mk('span', '', 'rate ' + fmt(c.rate) + (c.exact ? ' · exact' : '')));
-        cands.appendChild(b);
-      });
-      var ex = S.exactCounts(l.unit, res.remP, row.qty);
-      cands.appendChild(mk('p', 'hint', ex.length
-        ? 'Exact for this total: ' + ex.map(function (e) { return fmtCount(e.count); }).join(', ') + ' ' + WORD[l.unit] + '.'
-        : 'No whole count gives this total exactly. The variance shows.'));
-    }
+    var stock = card.querySelector('.stock');
+    stock.hidden = !l.item;
+    if (l.item) stock.textContent = 'Summary stock: ' + trimNum(l.item.stock, 3) + ' ' + WORD[l.item.unit] +
+      ' (for reference, not deducted)';
 
     var msg = card.querySelector('.line-msg');
     var text = '', tone = '';
     if (row && row.error) {
       text = row.error;
       tone = 'bad';
-      if (!st.absOn && row.error === 'Enter the count.' && l.rate > 0) {
-        text += ' Or turn on absorb to let the rate suggest it.';
-      }
     } else if (row) {
-      var parts = [];
-      if (rateFixed) {
-        var basis = l.rate > 0 ? 'Typed rate ' : 'Max rate ';
-        if (kg) parts.push(basis + fmt(row.typedRate) + ' kept. Weight ' + fmtCount(row.qty) + ' kg solved.');
-        else parts.push(basis + fmt(row.typedRate) + ' gives ' + fmtCount(row.qty) + ' ' + WORD[l.unit] +
-          ' at NPR ' + fmt(row.rate) + '.');
-      } else if (countFixed) {
-        parts.push((kg ? 'Weight' : 'Count') + ' fixed. Rate absorbs.');
-      }
-      if (row.adjusted) parts.push('Rate moved 1 paisa to close the bill.');
+      var parts = [(l.rate > 0 ? 'Typed rate' : 'Max rate') + ' NPR ' + fmt(row.rate) + '.'];
       parts.push(FLAG_TEXT[row.flag] + (row.pct !== null ? ' (' + row.pct + '%)' : ''));
       if (row.flag === 'LOSS') tone = 'bad';
       else if (row.flag === 'OVER_TAX') tone = 'warn';
@@ -240,6 +211,30 @@
     }
     msg.textContent = text;
     msg.className = 'line-msg ' + tone;
+  }
+
+  // Item list under the name box. Shown only while that line's name has matches.
+  function renderSuggest() {
+    st.lines.forEach(function (l) {
+      var card = cardFor(l.id);
+      if (!card) return;
+      var box = card.querySelector('.suggest');
+      var open = st.sug.line === l.id && st.sug.items.length > 0;
+      var input = card.querySelector('.f-name');
+      input.setAttribute('aria-expanded', open ? 'true' : 'false');
+      box.hidden = !open;
+      box.innerHTML = '';
+      if (!open) return;
+      st.sug.items.forEach(function (it, i) {
+        var b = mk('button', 'sug' + (i === st.sug.idx ? ' on' : ''));
+        b.type = 'button';
+        b.dataset.i = String(i);
+        b.appendChild(mk('strong', '', it.name));
+        b.appendChild(mk('span', '', 'max NPR ' + fmt(it.rate) + ' per ' + PER[it.unit] +
+          (it.buy != null ? ' · buy ' + trimNum(it.buy, 4) : '') + ' · stock ' + trimNum(it.stock, 3) + ' ' + WORD[it.unit]));
+        box.appendChild(b);
+      });
+    });
   }
 
   function addTot(label, value) {
@@ -286,8 +281,7 @@
       var left = mk('div');
       left.appendChild(mk('strong', '', r.name || ('Item ' + (i + 1))));
       var detail = fmtCount(r.qty) + ' ' + WORD[r.unit] + ' × NPR ' + fmt(r.rate);
-      if (r.absorbs) detail += ' (absorbs)';
-      if (r.adjusted) detail += ' (1 paisa)';
+      if (r.aboveMax) detail += ' (above max)';
       left.appendChild(mk('small', '', detail));
       row.appendChild(left);
       row.appendChild(mk('strong', '', fmt(r.sub / 100)));
@@ -306,12 +300,11 @@
       addTot(excl ? 'Total incl. VAT' : 'Bill total', fmt(res.billTotal / 100));
     }
 
-    var status = $('status');
     var flagged = res.rows.filter(function (r) {
       return !r.error && (r.flag === 'LOSS' || r.flag === 'OVER_TAX' || r.aboveMax);
     }).length;
     var text, tone;
-    if (!res.ok && excl === false && !(G > 0)) { text = 'Enter the bill total.'; tone = ''; }
+    if (!excl && !(G > 0)) { text = 'Enter the bill total.'; tone = ''; }
     else if (!res.ok) { text = res.msg; tone = 'bad'; }
     else if (!res.hasTarget) {
       text = 'Built from items. Taxable NPR ' + fmt(res.base) + '. Total incl. VAT NPR ' + fmt(res.billTotal / 100) + '.';
@@ -329,6 +322,7 @@
       text += ' ' + flagged + ' line(s) outside band or above max rate.';
       if (tone === 'ok') tone = 'warn';
     }
+    var status = $('status');
     status.textContent = text;
     status.className = 'status ' + tone;
 
@@ -346,43 +340,11 @@
     $('billing').value = out.join('\n');
   }
 
-  // The old absorber stops absorbing (radio changed, a new default, or the taxable amount was
-  // cleared). Its computed box becomes typed, so the screen and the pricing agree.
-  function commitShown(G, V, id, mode) {
-    var l = findLine(id);
-    if (!l) return;
-    var r = S.solveBill(G, V, st.lines, id, mode);
-    var row = null;
-    r.rows.forEach(function (x) { if (x.id === id) row = x; });
-    if (!row || row.error) return;
-    if (row.fixedBy === 'rate') l.count = row.qty;
-    else if (row.fixedBy === 'count') l.rate = row.rate;
-  }
-
   function render() {
     var G = num($('gross')), V = num($('vat'));
-    var mode = st.mode;
-    var needAbs = !(mode === 'excl' && !(G > 0));
-    var absId = needAbs ? effectiveAbsorber() : null;
-    if (st.lastAbs && st.lastAbs !== absId && st.prev) commitShown(st.prev.G, st.prev.V, st.lastAbs, st.prev.mode);
-    st.lastAbs = absId;
-    st.prev = { G: G, V: V, mode: mode };
-
-    $('absBox').hidden = !needAbs;
-    $('absOn').checked = st.absOn;
-    var pickOn = st.absOn && needAbs;
-    $('absHint').textContent = !st.absOn
-      ? 'Nobody absorbs. Each line is priced as typed, and the variance shows.'
-      : (absId
-        ? 'The ticked line takes the rest. Untick it to let nobody absorb.'
-        : 'Nobody absorbs now. Tick a line to let it take the rest.');
-    $('itemsHint').textContent = !needAbs ? ITEMS_TEXT.build : (pickOn ? ITEMS_TEXT.on : ITEMS_TEXT.off);
-
-    var res = S.solveBill(G, V, st.lines, absId, mode);
-    st.lines.forEach(function (l, i) {
-      cardFor(l.id).querySelector('.absorb-pick').hidden = !pickOn;
-      renderCard(l, res.rows[i], absId, res);
-    });
+    var res = S.solveBill(G, V, st.lines, st.mode);
+    res.rows.forEach(function (row, i) { renderCard(st.lines[i], row); });
+    renderSuggest();
     renderModeUI(res, G, V);
     renderResult(res, G, V);
   }
@@ -449,50 +411,67 @@
 
   // ---------- events ----------
 
-  // Typing one box on the absorber clears the other, so only the fixed box is used.
-  // Other lines keep both values as typed.
   function onInput(e) {
     var t = e.target;
-    // Checkboxes and radios are handled in onChange. Re-rendering here would reset them first.
-    if (t.type === 'checkbox' || t.type === 'radio') return;
-    var card = t.closest ? t.closest('.line') : null;
-    var l = card ? findLine(card.dataset.id) : null;
+    var l = lineOf(t);
     if (l) {
-      var abs = isAbsorber(l);
-      if (t.classList.contains('f-name')) l.name = t.value.trim();
-      else if (t.classList.contains('f-count')) {
-        l.count = num(t);
-        l.fixed = 'count';
-        if (abs) l.rate = NaN;
-      } else if (t.classList.contains('f-std')) l.std = num(t);
-      else if (t.classList.contains('f-buy')) l.buy = num(t);
-      else if (t.classList.contains('f-rate')) {
-        l.rate = num(t);
-        l.fixed = 'rate';
-        if (abs) l.count = NaN;
+      if (t.classList.contains('f-name')) {
+        l.name = t.value.trim();
+        var exact = S.findItem(ITEMS, t.value);
+        if (exact) {
+          if (!l.item || l.item.name !== exact.name) applyItem(l, exact);
+          st.sug = { line: null, items: [], idx: 0 };
+        } else {
+          l.item = null;
+          showList(l, t.value);
+        }
       }
+      else if (t.classList.contains('f-count')) l.count = num(t);
+      else if (t.classList.contains('f-std')) l.std = num(t);
+      else if (t.classList.contains('f-buy')) l.buy = num(t);
+      else if (t.classList.contains('f-rate')) l.rate = num(t);
     }
     render();
   }
 
-  // Switch on: the default line takes the rest. Switch off: nobody. A ticked line picks it;
-  // unticking it leaves nobody absorbing, and the switch stays on.
-  function onChange(e) {
+  // Keep the list open while the name box is tapped; a tap on an item must not blur the box first.
+  function onMouseDown(e) {
+    if (e.target.closest && e.target.closest('.suggest')) e.preventDefault();
+  }
+
+  function onKeyDown(e) {
     var t = e.target;
-    if (t.id === 'absOn') {
-      st.absOn = t.checked;
-      st.absorber = null;
-      render();
-    } else if (t.classList.contains('r-absorb')) {
-      var card = t.closest('.line');
-      st.absorber = t.checked && card ? card.dataset.id : 'none';
-      render();
-    }
+    if (!t.classList || !t.classList.contains('f-name')) return;
+    var l = lineOf(t);
+    var n = st.sug.items.length;
+    if (!l || st.sug.line !== l.id || !n) return;
+    if (e.key === 'ArrowDown') { st.sug.idx = (st.sug.idx + 1) % n; e.preventDefault(); renderSuggest(); }
+    else if (e.key === 'ArrowUp') { st.sug.idx = (st.sug.idx - 1 + n) % n; e.preventDefault(); renderSuggest(); }
+    else if (e.key === 'Enter') { e.preventDefault(); pickAt(st.sug.idx); }
+    else if (e.key === 'Escape') { st.sug.line = null; renderSuggest(); }
   }
 
   function onFocusIn(e) {
     var t = e.target;
     if (t.tagName === 'INPUT' && t.type === 'number' && t.select) t.select();
+    if (t.classList && t.classList.contains('f-name')) {
+      var l = lineOf(t);
+      if (l) {
+        if (S.findItem(ITEMS, t.value)) st.sug = { line: null, items: [], idx: 0 };
+        else showList(l, t.value);
+        renderSuggest();
+      }
+    }
+  }
+
+  function onFocusOut(e) {
+    var t = e.target;
+    if (!t.classList || !t.classList.contains('f-name')) return;
+    var l = lineOf(t);
+    var id = l ? l.id : null;
+    setTimeout(function () {
+      if (st.sug.line === id) { st.sug = { line: null, items: [], idx: 0 }; renderSuggest(); }
+    }, 200);
   }
 
   function onClick(e) {
@@ -505,29 +484,14 @@
     if (t.id === 'calcClose') { toggleCalc(false); return; }
     if (t.dataset.calc !== undefined) { calcKey(t.dataset.calc); return; }
     if (t.classList.contains('b-mode')) { st.mode = t.dataset.mode; render(); return; }
+    if (t.classList.contains('sug')) { pickAt(Number(t.dataset.i)); return; }
 
-    var card = t.closest('.line');
-    var l = card ? findLine(card.dataset.id) : null;
+    var l = lineOf(t);
     if (!l) return;
-    var countEl = card.querySelector('.f-count'), rateEl = card.querySelector('.f-rate');
-
     if (t.classList.contains('b-unit')) setUnit(l, t.dataset.unit);
-    else if (t.classList.contains('step-btn')) bump(l, countEl, Number(t.dataset.d));
-    else if (t.classList.contains('b-fix')) {
-      // Keep the value shown in the box being fixed. The other box is recomputed.
-      if (t.dataset.fix === 'rate') { l.rate = num(rateEl); l.count = NaN; }
-      else { l.count = num(countEl); l.rate = NaN; }
-      l.fixed = t.dataset.fix;
-    } else if (t.classList.contains('cand')) {
-      l.count = Number(t.dataset.count);
-      l.fixed = 'count';
-      l.rate = NaN;
-      countEl.value = String(l.count);
-    } else if (t.classList.contains('b-usemax')) {
-      l.rate = NaN;
-      l.fixed = 'rate';
-      rateEl.value = '';
-    } else if (t.classList.contains('b-remove')) removeLine(l);
+    else if (t.classList.contains('step-btn')) bump(l, Number(t.dataset.d));
+    else if (t.classList.contains('b-usemax')) l.rate = NaN;
+    else if (t.classList.contains('b-remove')) removeLine(l);
     else return;
     render();
   }
@@ -535,10 +499,8 @@
   function resetAll() {
     $('lines').innerHTML = '';
     st.lines = [];
-    st.absorber = null;
-    st.absOn = false;
-    st.lastAbs = null;
-    st.prev = null;
+    st.sug = { line: null, items: [], idx: 0 };
+    st.mode = 'incl';
     addLine();
     $('gross').value = '';
     $('vat').value = VAT_DEFAULT;
@@ -570,9 +532,11 @@
   function init() {
     addLine();
     document.addEventListener('input', onInput);
-    document.addEventListener('change', onChange);
     document.addEventListener('click', onClick);
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('keydown', onKeyDown);
     document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('focusout', onFocusOut);
     render();
     renderCalc();
   }
