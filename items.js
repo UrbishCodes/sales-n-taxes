@@ -1,6 +1,10 @@
 /* Item catalog from the stock group summary (New A to Z Mobile Center, 16-Jul-2026 to 15-Oct-2026).
  * name, unit (pcs | kg | doz), rate = max sell rate (Rate column), buy = the # value (null if none),
  * stock = closing quantity (info only). Same name, unit and rate rows merged. Works offline.
+ *
+ * 2026-10-29 fix: "Screen Protrector #25" (the misspelled twin of "Screen Protector #25",
+ * same rate 27 / buy 25, stock 3868) was merged into "Screen Protector #25" (stock 6008).
+ * The two names normalize to the same search key, so the duplicate shadowed the real entry.
  */
 (function (root) {
   'use strict';
@@ -72,11 +76,10 @@
     {"name":"Pushpa Mala Dana #310","unit":"kg","rate":332,"buy":310,"stock":1},
     {"name":"Ring Dori #9","unit":"pcs","rate":10,"buy":9,"stock":123},
     {"name":"Screen Procetor #23","unit":"pcs","rate":25,"buy":23,"stock":150},
-    {"name":"Screen Protector #25","unit":"pcs","rate":27,"buy":25,"stock":2140},
+    {"name":"Screen Protector #25","unit":"pcs","rate":27,"buy":25,"stock":6008},
     {"name":"Screen Protector #27","unit":"pcs","rate":29,"buy":27,"stock":20},
     {"name":"Screen Protertor #32","unit":"pcs","rate":34,"buy":32,"stock":1508},
     {"name":"Screen Protrector #20","unit":"pcs","rate":21,"buy":20,"stock":160},
-    {"name":"Screen Protrector #25","unit":"pcs","rate":27,"buy":25,"stock":3868},
     {"name":"Screen Protrector #30","unit":"pcs","rate":32,"buy":30,"stock":2302},
     {"name":"Screen Protrector #35","unit":"pcs","rate":37,"buy":35,"stock":6281},
     {"name":"Screen Protrector #37","unit":"pcs","rate":40,"buy":37,"stock":3910},
