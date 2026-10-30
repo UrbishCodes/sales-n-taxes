@@ -8,7 +8,11 @@ with one of the three options below.
 
 ```
 index.html    style.css    app.js    calc.js    solver.js    items.js    .nojekyll
+fonts/        (4 .woff2 files — VT323, Archivo Black, Geist, Geist Mono)
 ```
+
+`index.html` references `style.css` and `fonts/*.woff2` by relative path — keep the
+folder structure as-is when uploading.
 
 Optional (only for Cloudflare CLI): `wrangler.toml`.
 Optional (only for Vercel CLI): `vercel.json` — not required; Vercel serves the folder as-is.

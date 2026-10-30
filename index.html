@@ -4,20 +4,32 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="color-scheme" content="light" />
-  <meta name="description" content="FanumTaxxed — counter sales with a restored auto-adjust engine: one line takes the rest, typed counts and rates are never reverted. VAT in or out, item list from the stock summary, FNT-991ES PLUS shop calculator. Works offline." />
+  <meta name="theme-color" content="#F7EFD9" />
+  <meta name="description" content="FanumTaxxed — counter sales with a restored auto-adjust engine: one line takes the rest, typed counts and rates are never reverted. VAT in or out, item list from the stock summary, FANUM-991ES PLUS shop calculator. Works offline." />
   <title>FanumTaxxed — Sales, VAT &amp; Shop Calculator</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect x=%228%22 y=%224%22 width=%2284%22 height=%2292%22 rx=%2214%22 fill=%22%23111827%22/><text x=%2250%22 y=%2266%22 font-size=%2252%22 font-family=%22monospace%22 font-weight=%22bold%22 fill=%22%2334d399%22 text-anchor=%22middle%22>F</text></svg>" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect x=%228%22 y=%224%22 width=%2284%22 height=%2292%22 rx=%2214%22 fill=%22%2314120b%22/><rect x=%2214%22 y=%2210%22 width=%2272%22 height=%2230%22 rx=%226%22 fill=%22%23cbd5bc%22/><text x=%2250%22 y=%2278%22 font-size=%2240%22 font-family=%22monospace%22 font-weight=%22bold%22 fill=%22%23ffd23f%22 text-anchor=%22middle%22>F</text></svg>" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <h1>Fanum<span>Taxxed</span></h1>
-      <p class="conn">Counter sales · linked VAT &amp; rates · works offline</p>
+
+  <!-- ═══════════ neobrutalist page chrome — title card, chips, side button, marquee ═══════════ -->
+  <header class="page-head">
+    <div class="head-row">
+      <h1 class="nb-title">FANUM<span class="es">TAXXED</span></h1>
+      <div class="head-chips" aria-hidden="true">
+        <span class="nb-chip bg-pink">SALES + VAT</span>
+        <span class="nb-chip bg-teal">NON-REV DEFAULT</span>
+        <span class="nb-chip">LOCAL-FIRST</span>
+      </div>
+      <div class="head-btns">
+        <button type="button" class="nb-side-btn" id="calcBtn" aria-expanded="false" aria-controls="calcPanel" title="Open the FANUM-991ES PLUS shop calculator">CALCULATOR&nbsp;→</button>
+      </div>
     </div>
-    <div class="topbar-btns">
-      <button type="button" class="ghost" id="calcBtn" aria-expanded="false" aria-controls="calcPanel">Calculator</button>
-      <button type="button" class="ghost" id="resetBtn">Reset</button>
+    <div class="marquee" aria-hidden="true">
+      <div class="marquee-track">
+        <span>FANUMTAXXED · NON-REVERSE + REVERSE VAT · LINKED FIELDS · PCS / KG / DOZEN · TIDY QTY &amp; RATE OPTIONS · FANUM-991ES PLUS CALCULATOR · +VAT · −VAT · VAT AMT · VAT SPLIT · PER-DEVICE HISTORY ·&nbsp;</span>
+        <span>FANUMTAXXED · NON-REVERSE + REVERSE VAT · LINKED FIELDS · PCS / KG / DOZEN · TIDY QTY &amp; RATE OPTIONS · FANUM-991ES PLUS CALCULATOR · +VAT · −VAT · VAT AMT · VAT SPLIT · PER-DEVICE HISTORY ·&nbsp;</span>
+      </div>
     </div>
   </header>
 
@@ -26,7 +38,7 @@
 
       <!-- ============ 1 · ITEMS (each line card holds its AMOUNTS — LINKED block) ============ -->
       <section class="card" aria-labelledby="s1">
-        <h2 id="s1"><span class="num">1</span> Items</h2>
+        <h2 id="s1">ITEMS &amp; RATE — LINES OF THE BILL</h2>
         <div class="absorb-row">
           <label class="absorb-switch">
             <input type="checkbox" id="absOn" checked />
@@ -35,32 +47,32 @@
         </div>
         <p class="hint" id="itemsHint">Type the count or the rate. The box you type in is never overwritten; the other one follows to keep the bill exact.</p>
         <div id="lines"></div>
-        <button type="button" class="secondary" id="addLine">+ Add item</button>
+        <button type="button" class="nb-btn b-white wide" id="addLine">+ ADD ITEM</button>
       </section>
 
       <!-- ============ 2 · SALES CALC (right after the amounts — never parked at the side or bottom) ============ -->
       <section class="card" aria-labelledby="salesTitle">
-        <h2 id="salesTitle"><span class="num">2</span> <span id="salesModeTitle">SALES CALC — NON-REV · 13%</span></h2>
+        <h2 id="salesTitle"><span id="salesModeTitle">SALES CALC — NON-REV · 13%</span></h2>
         <div class="field">
-          <span>VAT mode</span>
+          <span>VAT MODE</span>
           <div class="segmented" id="modeBtns" role="radiogroup" aria-label="VAT mode">
-            <button type="button" role="radio" class="b-mode" data-mode="rev" aria-checked="false">REV · from total</button>
-            <button type="button" role="radio" class="b-mode active" data-mode="nonrev" aria-checked="true">NON-REV · from base</button>
+            <button type="button" role="radio" class="b-mode" data-mode="rev" aria-checked="false"><b>REVERSE</b><small>gross → net · strip VAT</small></button>
+            <button type="button" role="radio" class="b-mode active" data-mode="nonrev" aria-checked="true"><b>NON-REVERSE</b><small>net → gross · add VAT</small><i class="defbadge" aria-hidden="true">DEFAULT</i></button>
           </div>
         </div>
         <div class="two">
           <label class="field">
-            <span id="grossLabel" class="amt-label">GROSS — INCL. VAT (G)</span>
+            <span id="grossLabel" class="amt-label">GROSS — INCL. VAT (G) <span class="nb-badge auto">AUTO</span></span>
             <input id="gross" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" placeholder="e.g. 42473" />
           </label>
           <label class="field">
-            <span id="baseLabel" class="amt-label">BASE — BEFORE VAT (X)</span>
-            <input id="base" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" placeholder="blank = build from items" />
+            <span id="baseLabel" class="amt-label">BASE — BEFORE VAT (X) <span class="nb-badge type">YOU TYPE</span></span>
+            <input id="base" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" placeholder="blank = build from items" class="prime" />
           </label>
         </div>
         <p class="hint" id="modeHint">Type the taxable amount, or leave it blank and build the bill from the items. VAT is added on top. The two boxes are linked — typing one fills the other.</p>
         <label class="field">
-          <span>VAT %</span>
+          <span>VAT RATE <span class="nb-badge auto">%</span></span>
           <input id="vat" type="number" inputmode="decimal" step="any" min="0" value="13" autocomplete="off" />
         </label>
         <div class="chips vat-chips" id="vatChips" role="group" aria-label="Quick VAT rates">
@@ -79,25 +91,28 @@
 
       <!-- ============ 3 · RESULT ============ -->
       <section class="card" aria-labelledby="s3">
-        <h2 id="s3"><span class="num">3</span> Result</h2>
+        <h2 id="s3">RESULT — BILL RECEIPT</h2>
         <div class="status" id="status" role="status">Enter the taxable amount, or build the bill from the items.</div>
         <div id="resRows"></div>
         <div class="totals" id="totals"></div>
         <label class="field">
-          <span>Billing lines (paste into invoice)</span>
+          <span>BILLING LINES (PASTE INTO INVOICE)</span>
           <textarea id="billing" rows="7" readonly aria-label="Billing lines"></textarea>
         </label>
-        <button type="button" class="primary" id="copyBtn">Copy billing lines</button>
+        <button type="button" class="nb-btn b-yellow wide" id="copyBtn">COPY BILLING LINES</button>
+        <button type="button" class="nb-btn b-pink wide" id="resetBtn">RESET</button>
+        <div class="bill-barcode" aria-hidden="true"></div>
+        <div class="bill-thanks" aria-hidden="true">· · · FANUM TAXED · · ·</div>
       </section>
     </div>
   </main>
 
-  <!-- ============ SIDE CALCULATOR — FNT-991ES PLUS ============ -->
+  <!-- ============ FANUM-991ES PLUS — physical calculator chassis (slide-up / side panel) ============ -->
   <aside class="calc" id="calcPanel" aria-label="Calculator" hidden>
     <div class="calc-head">
       <div class="calc-brand">
         <strong>FanumTaxxed</strong>
-        <span class="calc-model">FNT-991ES PLUS</span>
+        <span class="calc-model">FANUM-991ES PLUS</span>
       </div>
       <div class="calc-head-btns">
         <button type="button" id="sndBtn" class="lcd-mini on" aria-pressed="true" title="Key sounds (distinct per operation)">SOUND</button>
@@ -116,12 +131,20 @@
       <p class="calc-now" id="calcNow">0</p>
     </div>
 
-    <!-- Replay: four separate, easy-to-hit buttons (no circular pad) -->
+    <!-- Replay: four separate, easy-to-hit keys (no circular pad) -->
     <div class="dir-pad" role="group" aria-label="Replay and edit">
       <button type="button" data-calc="LEFT" class="ck dir" title="Move the cursor left">←</button>
       <button type="button" data-calc="RIGHT" class="ck dir" title="Move the cursor right">→</button>
       <button type="button" data-calc="UP" class="ck dir" title="Recall the previous entry from history">↑</button>
       <button type="button" data-calc="DOWN" class="ck dir" title="Recall the next entry from history">↓</button>
+    </div>
+
+    <!-- VAT business keys — separate, bigger, sitting above the number grid like the original -->
+    <div class="vat-keys" role="group" aria-label="VAT keys">
+      <button type="button" data-calc="ADDVAT" class="ck k-vat">+VAT</button>
+      <button type="button" data-calc="REMVAT" class="ck k-vat">−VAT</button>
+      <button type="button" data-calc="VATAMT" class="ck k-vat">VAT AMT</button>
+      <button type="button" data-calc="SPLIT" class="ck k-vat">VAT SPLIT</button>
     </div>
 
     <div class="calc-keys">
@@ -151,30 +174,26 @@
       <button type="button" data-calc="+" class="ck k-op">+</button>
     </div>
 
-    <!-- Four separate, bigger VAT business keys -->
-    <div class="vat-keys" role="group" aria-label="VAT keys">
-      <button type="button" data-calc="ADDVAT" class="ck k-vat">+VAT</button>
-      <button type="button" data-calc="REMVAT" class="ck k-vat">−VAT</button>
-      <button type="button" data-calc="VATAMT" class="ck k-vat">VAT AMT</button>
-      <button type="button" data-calc="SPLIT" class="ck k-vat">VAT SPLIT</button>
-    </div>
-
     <button type="button" data-calc="USE" class="ck k-all" id="useCalcBtn">Use as taxable amount</button>
 
     <div class="hist-list" id="calcHist" hidden></div>
     <p class="hint">Live preview shows the result before <b>=</b>. −VAT removes VAT, +VAT adds it back. &ldquo;Use&rdquo; converts the number into the right VAT space first, so it is never taxed twice.</p>
+    <div class="calc-etch" aria-hidden="true">
+      <span>FANUM-991ES PLUS · TWO WAY POWER</span>
+      <a href="https://github.com/UrbishCodes" target="_blank" rel="noopener" title="Designed &amp; developed by Urbish — GitHub">URBISH</a>
+    </div>
   </aside>
 
   <!-- ============ LINE TEMPLATE ============ -->
   <template id="lineTpl">
     <article class="line">
       <div class="line-head">
-        <button type="button" class="b-absorb" aria-pressed="false" title="Let this line take the rest of the total">takes the rest</button>
-        <button type="button" class="link b-remove">Remove</button>
+        <button type="button" class="b-absorb" aria-pressed="false" title="Let this line take the rest of the total">TAKES THE REST</button>
+        <button type="button" class="link b-remove">REMOVE</button>
       </div>
 
       <div class="field name-box">
-        <span>Item name</span>
+        <span>ITEM NAME <span class="nb-badge auto">OPTIONAL</span></span>
         <input class="f-name" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
                placeholder="Type e.g. mobile, glass, sticker" role="combobox" aria-expanded="false" aria-autocomplete="list" />
         <div class="suggest" role="listbox" hidden></div>
@@ -182,11 +201,11 @@
       <p class="stock" hidden></p>
 
       <div class="field">
-        <span>Unit sold</span>
+        <span>UNIT SOLD</span>
         <div class="segmented" role="radiogroup" aria-label="Unit sold">
-          <button type="button" role="radio" class="b-unit active" data-unit="pcs" aria-checked="true">Pcs</button>
-          <button type="button" role="radio" class="b-unit" data-unit="doz" aria-checked="false">Dozen</button>
-          <button type="button" role="radio" class="b-unit" data-unit="kg" aria-checked="false">Kg</button>
+          <button type="button" role="radio" class="b-unit active" data-unit="pcs" aria-checked="true"><b>PCS</b><small>type freely · rate absorbs</small></button>
+          <button type="button" role="radio" class="b-unit" data-unit="kg" aria-checked="false"><b>KG</b><small>sticky absorber</small></button>
+          <button type="button" role="radio" class="b-unit" data-unit="doz" aria-checked="false"><b>DOZEN</b><small>half-dozen steps</small></button>
         </div>
       </div>
 
@@ -201,7 +220,7 @@
           <input class="f-rate" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" />
         </label>
       </div>
-      <button type="button" class="ghost-dark b-usemax" hidden>Use max rate again</button>
+      <button type="button" class="b-usemax" hidden>USE MAX RATE AGAIN</button>
       <div class="stepper count-keys"></div>
       <div class="chips cands" hidden></div>
 
@@ -211,7 +230,7 @@
           <input class="f-std" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" />
         </label>
         <label class="field">
-          <span>Buy cost (optional)</span>
+          <span>BUY COST (OPTIONAL)</span>
           <input class="f-buy" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" />
         </label>
       </div>
@@ -223,10 +242,13 @@
   <p class="toast" id="toast" role="status"></p>
 
   <footer class="credit">
-    <p><strong>FanumTaxxed</strong> · Developed &amp; Designed by
+    <p>Fields are linked — change one, the others adjust · tidy chips offer bill-friendly counts / rates · <b>one VAT rate everywhere</b></p>
+    <p class="credit-sub">FanumTaxxed · every device keeps its own histories — no interlap · no cloud · no tracking</p>
+    <p class="credit-by">designed &amp; developed by
       <a href="https://github.com/UrbishCodes" target="_blank" rel="noopener">Urbish</a> ·
-      <a href="https://www.linkedin.com/in/urbish" target="_blank" rel="noopener">LinkedIn</a></p>
-    <p class="credit-sub">Works offline · your numbers never leave this device (calculator history is kept in this browser only)</p>
+      <a href="https://github.com/UrbishCodes" target="_blank" rel="noopener">GitHub ↗</a> ·
+      <a href="https://www.linkedin.com/in/urbish" target="_blank" rel="noopener">LinkedIn ↗</a>
+    </p>
   </footer>
 
   <script src="items.js"></script>

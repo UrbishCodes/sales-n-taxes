@@ -1,155 +1,114 @@
-# Counter sales calculator
+# FanumTaxxed — counter sales, VAT solved
 
-A browser calculator for counter sales at New A to Z Mobile Center (Nepal). One customer, one bill, one total, with several items on it. It works offline on a laptop or an iPhone.
+A browser calculator for counter sales at New A to Z Mobile Center (Nepal). One customer, one bill, one total, with several items on it. Works offline on a laptop or an iPhone.
+
+FanumTaxxed is the Fanum-tax name for it: the app that takes its bite of the total *exactly* — and never takes a bite out of what you typed.
 
 Live page: https://urbishcodes.github.io/sales-n-taxes/
 
 ---
 
-## 1. Problem
+## 0. Design restored (2026-10-30)
 
-### 1.1 The bill
-- The customer pays one total, VAT inclusive. Call it **G**.
-- VAT is 13%. The taxable base is **X = G ÷ 1.13**, rounded to paisa. VAT is **G − X**.
-- The items on the bill must add up to **X exactly**. Then the bill total equals what the customer paid.
+The neobrutalist × retro look of the original design is back — dotted paper page,
+yellow FANUM TAXXED title card, ink borders with hard offset shadows, chunky
+mode tiles, receipt bars with the barcode, the scrolling marquee, the black
+retro footer, and the dark FANUM-991ES PLUS calculator chassis with its green
+LCD and green / red / amber / teal VAT keys. VT323, Archivo Black, Geist and
+Geist Mono are **self-hosted in `fonts/`** — the app still works fully offline.
 
-### 1.2 Item rules
-Each item comes from the stock summary with three values:
+This was a re-skin only: `solver.js`, `app.js`, `calc.js` and `items.js` are
+byte-identical to the audited fixed build (121/121 battery checks pass).
 
-| Value | Source in the stock summary | Meaning |
+---
+
+## 1. What this build fixes (2026-10-29)
+
+An independent audit of the previous build found the auto-adjust engine had been deleted
+outright, along with six other defects. This build restores and repairs all of it:
+
+| # | Defect in the audited build | Fix here |
 |---|---|---|
-| Buy cost | the `#` value in Particulars | what the shop paid |
-| Max sell rate | the Rate column | the highest rate allowed for this item |
-| Unit | the Quantity column | pcs, dzn or kg |
+| 1 | **Auto rate/qty adjustment deleted** — "Off by NPR 176.73" and nothing else happened | Engine restored, **ON by default** (audit: every generation of it was mathematically correct — 43 doz @ 874.11 for the reference scenario) |
+| 2 | **The old "fixed box" ping-pong** — typing one box wiped the other, so typed counts/rates reverted | The box you type in is **never overwritten**; a typed count and a typed rate are both remembered. The last-edited one anchors, only the other box reconciles |
+| 3 | **VAT-space trap via the calculator** — 37,586.70 → −VAT → "Use as bill total" divided by 1.13 again → 29,435.90 | The calculator remembers which VAT space the shown number is in (BASE / INCL badge on the LCD). "Use" converts back to the original figure first, so a number is never taxed twice |
+| 4 | **Band contradicted the catalog** — 52 of 93 items flagged OVER TAX at their own max rate | Band recalibrated to **5–8.5%** (the stock summary prices items 6.9–8.3% over buy). Only genuine outliers flag now |
+| 5 | **Mode switch reinterpreted the number** — 42,473 incl-total silently became the excl-base | GROSS and BASE are two **linked boxes**; switching mode relabels the workflow but never reinterprets a typed number |
+| 6 | **Unit switch dropped the item** — max/buy/stock vanished until re-picked | The item link survives every switch; pcs↔doz converts rates by 12; a kg switch blanks them and switching back **restores** them |
+| 7 | **Duplicate catalog entry** — "Screen Protector #25" vs "Screen Protrector #25" shadowed each other | Merged into one entry (stock 6,008) |
 
-Profit band over buy cost:
-- **Below 5%** is a loss. Staff, rent and other costs are not covered.
-- **5% to 7%** is the target.
-- **Above 7%** is over-tax. Profit above the band is taxed more.
-- **Above the max sell rate** also means more tax, because the government taxes the profit.
+Also in this build: rates go to deeper decimals **only when that is what makes the line
+exact to the paisa** (PRD: "fine decimal precision"), and every line shows count suggestions
+with the rate each count needs, plus the exact counts for the total.
 
-### 1.3 Counting rules
-- **Pcs and dozen counts are real pieces.** They are never rounded. You cannot sell half a cover, and one sale cannot be recorded as two.
-- Dozens go in halves (½ dozen, 1 dozen, 1½ dozen).
-- **Kg** may be decimal, up to 3 places.
+## 2. The bill
 
-### 1.4 Why this is hard
-- Every line is count × rate, and rates have two decimals. A multi-item bill has several such lines, so the total can be a few paisa off the bill total.
-- Each line must respect its own max rate and, where possible, the 5–7% band.
-- Typing item names, rates and buy costs by hand is slow and error-prone.
-- Stock is updated manually. Recording bills and deducting stock is a later step.
+- **REV mode** (from total): type what the customer paid — VAT inclusive.
+  Taxable base = paid ÷ (1 + V%). VAT = paid − base.
+- **NON-REV mode** (from base, the default): type the taxable amount, or leave it blank and
+  build the bill from the items — each line is priced as entered, VAT goes on top.
+- The GROSS and BASE boxes are linked both ways: type either one, the other follows.
+- All line math runs on the **before-tax subtotal X**, never on the gross.
 
----
+## 3. Items and the auto-adjust engine
 
-## 2. Solution
+Each item comes from the stock summary with buy cost, max sell rate and unit. Type a name
+(`mobile`, `glass`, `sticker`); every word must appear, spelling slips are tolerated, arrow
+keys + Enter pick, an exact name fills the item on its own.
 
-### 2.1 Reverse VAT in paisa
-`X = round2(G ÷ (1 + V/100))`, `VAT = G − X`. Money is handled as whole paisa in the calculation, so floating-point noise cannot create a fake variance.
+**Auto-adjust (on by default):** one line takes the rest of the total. Which line is
+tickable per line card ("takes the rest"); the master switch is in the Items header.
 
-### 2.2 Item list from the stock summary
-The item list is built from the stock group summary (`items.js`, 93 items). Type a name and a list opens below the box:
+- The box you last typed is the **anchor** and is never overwritten:
+  - typed count → kept exactly; the rate absorbs (remainder ÷ count, 2 dp, deeper only to be exact)
+  - typed rate → pcs/doz: the count snaps to the nearest valid step (whole pcs / half dozens) and the rate reconciles; kg: the weight absorbs at 3–4 dp and the typed rate is kept
+- Steppers: pcs ±1/+10, dozens ±½/+1.
+- Suggestions under each absorber line: counts near the current one with the rate each
+  needs (tap to apply), the exact counts for this total, and for kg the nearby weights.
+- Flags per line: LOSS (< 5%), OVER TAX (> 8.5%), above max rate. The status line says
+  **Exact** or **Off by NPR x**, plus a count of flagged lines.
 
-- Type part of a name: `mobile`, `glass`, `sticker`. Every word typed must appear in the item name, in any order.
-- Common spelling slips in the summary are handled, so `cam protector` finds `CAM Protiction Glass`.
-- Tap an item, or pick it with the arrow keys and Enter. An exact name fills the item on its own.
-- Picking an item fills the unit, the **max sell rate** and the buy cost. The summary stock is shown for reference only. It is not deducted.
+## 4. Side calculator (FNT-991ES PLUS)
 
-### 2.3 Rate defaults to the max rate
-Every line starts at its max sell rate. The rate box shows that rate.
-
-- Type a rate to change it. The line then uses the typed rate, and the box says "Typed rate".
-- Tap **Use max rate again** to go back to the max.
-- Clearing the rate box also goes back to the max.
-
-Nothing absorbs the difference. Each line is priced as shown, and the status tells you the variance against the bill total.
-
-### 2.4 Flag, never hide
-Each line shows its status:
-
-| Flag | Meaning |
-|---|---|
-| LOSS | Margin over buy cost is below 5%. |
-| OVER TAX | Margin is above 7%. |
-| Above max rate | Rate is above the max sell rate. More tax applies. |
-| Error | A required value is missing or a count is not allowed for its unit. The message says what to fix. |
-
-The status line says either **Exact** (lines + VAT = bill total) or **Off by NPR x**. Flags on any line are added to the status.
-
-Band checks need the buy cost. Without it, the line shows "no buy cost entered".
-
-### 2.5 Billing lines
-Each line prints as: name, quantity, rate, amount. Then the taxable total, the VAT, and the bill total. The result can be copied with one tap.
-
-### 2.6 VAT included or excluded
-- **VAT included** (default). You type what the customer paid. Taxable base = paid ÷ (1 + V%). VAT = paid − base.
-- **VAT excluded**. You type the taxable amount. VAT = taxable × V%. Total = taxable + VAT.
-- **VAT excluded, nothing typed**. The bill is built from the items. Each line is priced as entered, the taxable amount is their sum, and VAT goes on top.
-
-### 2.7 Side calculator
-A plain calculator for any other sum: + − × ÷ and brackets. "+ VAT" and "− VAT" use the bill's VAT %. "Use as bill total" sends the result to the bill box (the taxable amount in VAT excluded mode).
-
-### 2.8 Reset
-Reset clears all items and the total, and returns to VAT included with 13% VAT.
-
----
-
-## 3. Using the calculator
-
-1. Type the item name (for example `mobile`). Pick the item from the list. Rate and unit fill in at the max rate.
-2. Type the count. Type a rate only if you are selling below the max.
-3. Add more items with **+ Add item**.
-4. Type the total paid in the bill box (or choose VAT excluded for the taxable amount).
-5. Check the status says **Exact**. If it says **Off by**, change a count or rate until it is exact, or check the flags.
-6. Tap **Copy billing lines**.
-7. Tap **Reset** for the next customer.
-
----
-
-## 4. Limits
-
-- **Not every total can be exact.** Pcs and dozens cannot be split, so many totals cannot be hit to the paisa. The app shows the variance rather than faking a match.
-- **Item list is a snapshot.** It is the stock summary of 16-Jul-2026 to 15-Oct-2026. New items or rate changes need an edit to `items.js`.
-- **Nothing is saved yet.** Bill recording and stock deduction are the next steps.
-- **Extra tax above 7% is flagged, not calculated.** The formula is not confirmed yet.
-
-### 4.1 Data issues in the stock summary
-- `Mobile Cover #2750` is listed as kg with rate 2409 and buy 2750. This shows as a LOSS. It is probably a typo in the `#` value. Check it.
-- `P B C Sticket` has no `#` buy cost, so its band shows "no buy cost entered".
-
----
+- **Instant keys** — pointerdown-driven, no click delay, no debounce; fast sequences like
+  `465893` register every digit.
+- **Live preview** — the result shows before `=`; `=` commits to the history tape.
+- **Four separate replay buttons** ↑ ↓ ← → — cursor editing and history recall (no circular pad).
+- **VAT keys**: +VAT, −VAT, VAT AMT (the tax inside the shown number) and VAT SPLIT (base + VAT + total). All use the bill's VAT %.
+- **Use as bill total / taxable amount** — converts the number into the right VAT space
+  first (see fix #3 above).
+- **Sounds**: distinct tone per operation, ON by default.
+- **Voice**: spoken keys and results, OFF by default, queued so it never slows a keystroke.
+- **History**: per-device (localStorage), per-record delete, tap or ↑/↓ to recall.
 
 ## 5. Files
 
 | File | Role |
 |---|---|
-| `index.html` | Page layout. |
-| `style.css` | Styling. Mobile first, two columns on laptops. |
-| `app.js` | Screen logic: item list, line cards, events, results, copy. |
-| `solver.js` | Pure rules and item search, no DOM. Runs in the browser and in Node. |
-| `items.js` | Item catalog generated from the stock summary. |
+| `index.html` | Page layout: Items → SALES CALC → Result, calculator shell, credit footer. |
+| `style.css` | Styling. Mobile first; Casio-style calculator body. |
+| `app.js` | Bill UI: linked amounts, line cards, anchor editing, suggestions, events. |
+| `calc.js` | Calculator: instant keys, cursor editing, sounds, voice, history, VAT keys. |
+| `solver.js` | Pure rules (absorber engine, band, unit metadata, USE conversion, item search). No DOM. Runs in Node for tests. |
+| `items.js` | Item catalog from the stock summary (92 items after the merge). |
 
-Tests are kept outside this repository: solver rules and the page flow (jsdom).
+Tests live outside this repository (Node battery against `solver.js`, 121 checks).
+Deploying: see `DEPLOY.md` (GitHub Pages, Vercel, Cloudflare Workers — no env vars, no
+secrets, no database).
+
+## 6. Limits
+
+- Not every total can be hit to the paisa when nobody absorbs or the counts are pinned;
+  the app shows the variance rather than faking a match.
+- Item list is a snapshot of the stock summary (16-Jul-2026 to 15-Oct-2026).
+- Extra tax above the band is flagged, not calculated (formula still unconfirmed).
+- `Mobile Cover #2750` (kg, rate 2409, buy 2750) is a probable `#` typo in the source data;
+  it still flags LOSS as entered. `P B C Sticket` has no buy cost, so no band check.
+
+## 7. Run it
+
+No build step and no dependencies. Open `index.html` in any browser, or use the Pages link.
 
 ---
 
-## 6. Run it
-
-No build step and no dependencies.
-- Open `index.html` in any browser, or
-- use the GitHub Pages link above.
-
----
-
-## 7. Roadmap
-
-1. **Bill recording:** save each bill with its lines, time and staff name.
-2. **Backend link:** item list, max rate and buy cost from the live stock records, instead of `items.js`.
-3. **Stock deduction:** match sold items by name and rate, deterministically.
-4. **Covers alert:** warn when total covers fall below the 95,000 pcs baseline.
-5. **Hosting that does not pause when idle** (for example Cloudflare). Festival weeks can mean 7–8 idle days.
-6. **Count suggestion:** suggest the count that gives the bill total, if wanted.
-
-### Open questions
-- Extra-tax formula above 7%. Assumed 13% of profit above the band. To confirm.
-- Cover baseline: group total or per item. Assumed group total.
-- "Most low" item for the reorder alert. Assumed lowest stock ÷ last count.
+Developed & Designed by [Urbish](https://github.com/UrbishCodes) · [LinkedIn](https://www.linkedin.com/in/urbish)
