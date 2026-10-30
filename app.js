@@ -1,16 +1,20 @@
 /* FanumTaxxed — counter sales UI: one bill, many items, linked amounts, restored absorber.
- * Uses window.Solver (solver.js) and window.Catalog (items.js). Works offline.
+ * Uses window.Solver (solver.js). Works offline.
  *
  * THE FIX the live build lost: the box the user is typing in is NEVER overwritten, and a
  * typed count or rate is never wiped when the other box is touched. Each line remembers
  * both typed values plus the last-edited one (the anchor). The anchor box shows exactly
  * what the user typed; only the other box shows the reconciled value.
+ *
+ * UI-only simplification (arithmetic untouched): no item-name / max-rate / buy-cost boxes —
+ * lines are auto-labelled ITEM n; AUTO mode lets the LAST line take the rest (a single item
+ * is that item); ticking a line's "takes the rest" box is a manual pick that turns AUTO off.
+ * solver.js stays byte-identical to the verified build.
  */
 (function () {
   'use strict';
 
   var S = window.Solver;
-  var ITEMS = (window.Catalog && window.Catalog.ITEMS) || [];
   var VAT_DEFAULT = '13';
   var WORD = { pcs: 'pcs', doz: 'doz', kg: 'kg' };
   var PER = { pcs: 'pc', doz: 'dozen', kg: 'kg' };
@@ -43,8 +47,7 @@
     typed: null,             // 'gross' | 'base' — which linked box the user typed last
     absorber: null,          // line id | 'none' | null (auto)
     absOn: true,             // auto-adjust ON by default (the engine the live build deleted)
-    lastAbs: null, prev: null,
-    sug: { line: null, items: [], idx: 0 }
+    lastAbs: null, prev: null
   };
   var nf = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   var toastTimer = null;
@@ -90,7 +93,8 @@
   function newLine() {
     st.seq += 1;
     // count / rate are USER-TYPED values (NaN = untouched); lastField is the anchor.
-    return { id: 'L' + st.seq, name: '', item: null, unit: 'pcs',
+    // std / buy stay NaN forever now (no max-rate / buy-cost boxes); the solver still reads them.
+    return { id: 'L' + st.seq, name: '', unit: 'pcs',
              count: NaN, rate: NaN, std: NaN, buy: NaN, lastField: null };
   }
   function findLine(id) {
@@ -116,59 +120,14 @@
     var card = cardFor(l.id);
     if (card) card.remove();
     st.lines = st.lines.filter(function (x) { return x.id !== l.id; });
-    if (st.sug.line === l.id) st.sug = { line: null, items: [], idx: 0 };
     if (st.absorber === l.id) st.absorber = null;
     if (!st.lines.length) addLine();
   }
 
-  // Fill the line from a stock-summary item. The item link survives every later unit switch.
-  function applyItem(l, item) {
-    if (l.unit !== item.unit) l.count = NaN;
-    l.name = item.name;
-    l.item = item;
-    l.unit = item.unit;
-    l.std = item.rate;
-    l.buy = item.buy == null ? NaN : item.buy;
-    l.rate = NaN;                      // rate basis goes back to the max sell rate
-    if (!(l.count > 0)) l.lastField = null;
-  }
-
-  function showList(l, text) {
-    var items = S.matchItems(ITEMS, text, 12);
-    st.sug = { line: items.length ? l.id : null, items: items, idx: 0 };
-  }
-
-  function pickAt(i) {
-    var l = findLine(st.sug.line);
-    var item = st.sug.items[i];
-    if (!l || !item) return;
-    applyItem(l, item);
-    st.sug = { line: null, items: [], idx: 0 };
-    var card = cardFor(l.id);
-    card.querySelector('.f-name').value = item.name;
-    render();
-    card.querySelector('.f-count').focus();
-  }
-
-  // Unit switch keeps the item (name, stock hint) and restores max/buy on the round trip.
+  // Unit switch: a per-kg rate is a different number than a per-pc rate, so the typed values
+  // restart. Counts never convert across units — the same rule the engine always had.
   function setUnit(l, u) {
     if (u === l.unit) return;
-    var from = l.unit;
-    if (from === 'kg' || u === 'kg') {
-      // Per-kg rates are a different number: blank them, but keep the item for the hint
-      // and so the rates can be restored when switching back.
-      l.std = NaN;
-      l.buy = NaN;
-      if (from === 'kg' && l.item && (l.item.unit === 'pcs' || l.item.unit === 'doz')) {
-        var m = S.switchUnitMeta(l.item.rate, l.item.buy == null ? NaN : l.item.buy, l.item.unit, u);
-        l.std = m.std;
-        l.buy = m.buy;
-      }
-    } else {
-      var meta = S.switchUnitMeta(l.std, l.buy, from, u);   // pcs <-> doz converts by 12
-      l.std = meta.std;
-      l.buy = meta.buy;
-    }
     l.unit = u;
     l.count = NaN;      // counts do not convert across units
     l.rate = NaN;
@@ -235,12 +194,11 @@
     var kg = l.unit === 'kg';
 
     setPressed(card.querySelectorAll('.b-unit'), 'unit', l.unit);
-    var absBtn = card.querySelector('.b-absorb');
-    absBtn.setAttribute('aria-pressed', isAbs ? 'true' : 'false');
-    absBtn.classList.toggle('on', isAbs);
+    card.querySelector('.line-tag').textContent = 'ITEM ' + (st.lines.indexOf(l) + 1);
+    var absCb = card.querySelector('.f-absorb');
+    absCb.checked = isAbs;
     card.querySelector('.l-count').textContent = COUNT_LABEL[l.unit];
     card.querySelector('.l-rate').textContent = 'Rate (NPR per ' + PER[l.unit] + ')';
-    card.querySelector('.l-std').textContent = 'Max rate (NPR per ' + PER[l.unit] + ')';
     buildKeys(card, l.unit);
     card.querySelector('.count-keys').hidden = kg;
 
@@ -258,19 +216,7 @@
       // rate box keeps the user's typed rate while it holds focus or stays their anchor
     } else {
       setIfIdle(countEl, isFinite(l.count) ? fmtCount(l.count) : '');
-      setIfIdle(rateEl, l.rate > 0 ? trimNum(l.rate, 4) : (isFinite(l.std) ? trimNum(l.std, 4) : ''));
-    }
-    setIfIdle(card.querySelector('.f-std'), isFinite(l.std) ? trimNum(l.std, 4) : '');
-    setIfIdle(card.querySelector('.f-buy'), isFinite(l.buy) ? trimNum(l.buy, 4) : '');
-    card.querySelector('.b-usemax').hidden = !(l.rate > 0);
-
-    // Stock hint survives unit switches now (the item link is never dropped).
-    var stock = card.querySelector('.stock');
-    stock.hidden = !l.item;
-    if (l.item) {
-      stock.textContent = 'Summary stock: ' + trimNum(l.item.stock, 3) + ' ' + WORD[l.item.unit] +
-        (l.item.unit !== l.unit ? ' (item is sold in ' + WORD[l.item.unit] + ')' : '') +
-        ' — for reference, not deducted';
+      setIfIdle(rateEl, l.rate > 0 ? trimNum(l.rate, 4) : '');
     }
 
     // ---- suggestions: counts (or kg weights) that keep the total ----
@@ -320,23 +266,19 @@
       if (isAbs) {
         if (row.anchor === 'count') {
           parts.push((kg ? 'Weight' : 'Count') + ' kept. Rate absorbs → NPR ' + fmtRate(row.rate, row.rateDp) + '.');
-        } else if (l.rate > 0) {
+        } else {
           parts.push(kg
             ? 'Typed rate NPR ' + fmt(row.typedRate) + ' kept. Weight ' + fmtCount(row.qty) + ' kg solved.'
             : 'Typed rate NPR ' + fmt(row.typedRate) + ' → ' + fmtCount(row.qty) + ' ' + WORD[l.unit] +
               ' @ NPR ' + fmtRate(row.rate, row.rateDp) + ' (rate absorbs).');
-        } else {
-          parts.push(kg
-            ? 'Max rate NPR ' + fmt(row.typedRate) + ' kept. Weight ' + fmtCount(row.qty) + ' kg solved.'
-            : 'Max rate NPR ' + fmt(row.typedRate) + ' → ' + fmtCount(row.qty) + ' ' + WORD[l.unit] +
-              ' @ NPR ' + fmtRate(row.rate, row.rateDp) + '.');
         }
         if (row.rateDp > 2 && !kg) parts.push('Rate at ' + row.rateDp + ' dp for an exact bill.');
       } else {
-        parts.push((l.rate > 0 ? 'Typed rate' : 'Max rate') + ' NPR ' + fmt(row.rate) + '.');
+        parts.push('Typed rate NPR ' + fmt(row.rate) + '.');
       }
       if (row.adjusted) parts.push('Rate moved 1 paisa to close the bill.');
-      parts.push(FLAG_TEXT[row.flag] + (row.pct !== null ? ' (' + row.pct + '%)' : ''));
+      // The margin band needs a buy cost; with no buy-cost box there is never a band verdict to show.
+      if (row.flag !== 'NONE') parts.push(FLAG_TEXT[row.flag] + (row.pct !== null ? ' (' + row.pct + '%)' : ''));
       if (row.flag === 'LOSS') tone = 'bad';
       else if (row.flag === 'OVER_TAX') tone = 'warn';
       if (row.aboveMax) {
@@ -347,30 +289,6 @@
     }
     msg.textContent = text;
     msg.className = 'line-msg ' + tone;
-  }
-
-  // Item list under the name box. Shown only while that line's name has matches.
-  function renderSuggest() {
-    st.lines.forEach(function (l) {
-      var card = cardFor(l.id);
-      if (!card) return;
-      var box = card.querySelector('.suggest');
-      var open = st.sug.line === l.id && st.sug.items.length > 0;
-      var input = card.querySelector('.f-name');
-      input.setAttribute('aria-expanded', open ? 'true' : 'false');
-      box.hidden = !open;
-      box.innerHTML = '';
-      if (!open) return;
-      st.sug.items.forEach(function (it, i) {
-        var b = mk('button', 'sug' + (i === st.sug.idx ? ' on' : ''));
-        b.type = 'button';
-        b.dataset.i = String(i);
-        b.appendChild(mk('strong', '', it.name));
-        b.appendChild(mk('span', '', 'max NPR ' + fmt(it.rate) + ' per ' + PER[it.unit] +
-          (it.buy != null ? ' · buy ' + trimNum(it.buy, 4) : '') + ' · stock ' + trimNum(it.stock, 3) + ' ' + WORD[it.unit]));
-        box.appendChild(b);
-      });
-    });
   }
 
   function addTot(label, value) {
@@ -525,10 +443,16 @@
     l.lastField = null;
   }
 
+  // AUTO mode picks the LAST line (one item: that item; several: the last one takes the
+  // rest). A manual tick wins over auto — and ticking turns the master switch off.
+  function autoAbsorber() {
+    return st.lines.length ? st.lines[st.lines.length - 1].id : null;
+  }
   function effectiveAbsorber() {
-    if (!st.absOn || st.absorber === 'none') return null;
-    if (st.absorber && findLine(st.absorber)) return st.absorber;
-    return S.defaultAbsorber(st.lines);
+    if (st.absorber === 'none') return null;                       // unticked: nobody absorbs
+    if (st.absorber && findLine(st.absorber)) return st.absorber;  // manual pick wins
+    if (!st.absOn) return null;                                    // auto off, nothing picked
+    return autoAbsorber();
   }
 
   function render() {
@@ -547,7 +471,6 @@
 
     var res = S.solveBill(X, V, st.lines, absId);
     st.lines.forEach(function (l, i) { renderCard(l, res.rows[i], absId, res); });
-    renderSuggest();
     renderModeUI(amt, res, V);
     renderResult(res, amt, V);
   }
@@ -560,67 +483,25 @@
     if (t.id === 'gross') { st.typed = 'gross'; render(); return; }
     if (t.id === 'base') { st.typed = 'base'; render(); return; }
     if (t.id === 'vat') { render(); return; }
+    // Checkboxes (the per-line "takes the rest", the master switch) fire input BEFORE
+    // change — re-rendering here would snap the box back before its change handler reads
+    // it. Their semantics live in onChange only.
+    if (t.type === 'checkbox') return;
 
     var l = lineOf(t);
     if (!l) return;
-    if (t.classList.contains('f-name')) {
-      l.name = t.value.trim();
-      var exact = S.findItem(ITEMS, t.value);
-      if (exact) {
-        if (!l.item || l.item.name !== exact.name) applyItem(l, exact);
-        st.sug = { line: null, items: [], idx: 0 };
-      } else {
-        l.item = null;
-        showList(l, t.value);
-      }
-    }
-    else if (t.classList.contains('f-count')) { l.count = num(t); l.lastField = 'count'; }
+    if (t.classList.contains('f-count')) { l.count = num(t); l.lastField = 'count'; }
     else if (t.classList.contains('f-rate')) { l.rate = num(t); l.lastField = 'rate'; }
-    else if (t.classList.contains('f-std')) { l.std = num(t); }
-    else if (t.classList.contains('f-buy')) { l.buy = num(t); }
     render();
-  }
-
-  // Keep the list open while the name box is tapped; a tap on an item must not blur the box first.
-  function onMouseDown(e) {
-    if (e.target.closest && e.target.closest('.suggest')) e.preventDefault();
-  }
-
-  function onKeyDown(e) {
-    var t = e.target;
-    if (!t.classList || !t.classList.contains('f-name')) return;
-    var l = lineOf(t);
-    var n = st.sug.items.length;
-    if (!l || st.sug.line !== l.id || !n) return;
-    if (e.key === 'ArrowDown') { st.sug.idx = (st.sug.idx + 1) % n; e.preventDefault(); renderSuggest(); }
-    else if (e.key === 'ArrowUp') { st.sug.idx = (st.sug.idx - 1 + n) % n; e.preventDefault(); renderSuggest(); }
-    else if (e.key === 'Enter') { e.preventDefault(); pickAt(st.sug.idx); }
-    else if (e.key === 'Escape') { st.sug.line = null; renderSuggest(); }
   }
 
   function onFocusIn(e) {
     var t = e.target;
     if (t.tagName === 'INPUT' && t.type === 'number' && t.select) t.select();
-    if (t.classList && t.classList.contains('f-name')) {
-      var l = lineOf(t);
-      if (l) {
-        if (S.findItem(ITEMS, t.value)) st.sug = { line: null, items: [], idx: 0 };
-        else showList(l, t.value);
-        renderSuggest();
-      }
-    }
   }
 
   function onFocusOut(e) {
     var t = e.target;
-    if (t.classList && t.classList.contains('f-name')) {
-      var l = lineOf(t);
-      var id = l ? l.id : null;
-      setTimeout(function () {
-        if (st.sug.line === id) { st.sug = { line: null, items: [], idx: 0 }; renderSuggest(); }
-      }, 200);
-      return;
-    }
     // Leaving a count/rate box: fill its computed counterpart (the box just left keeps the typing).
     if (t.classList && (t.classList.contains('f-count') || t.classList.contains('f-rate'))) render();
   }
@@ -642,27 +523,16 @@
       render();
       return;
     }
-    if (t.classList.contains('sug')) { pickAt(Number(t.dataset.i)); return; }
 
     var l = lineOf(t);
     if (!l) return;
     if (t.classList.contains('b-unit')) setUnit(l, t.dataset.unit);
-    else if (t.classList.contains('b-absorb')) {
-      // Tapping the ticked line unticks it (nobody absorbs); tapping another moves it.
-      st.absorber = (effectiveAbsorber() === l.id) ? 'none' : l.id;
-    }
     else if (t.classList.contains('step-btn')) bump(l, Number(t.dataset.d));
     else if (t.classList.contains('cand')) {
       l.count = Number(t.dataset.count);
       l.lastField = 'count';
       var card = cardFor(l.id);
       if (card) card.querySelector('.f-count').value = String(l.count);
-    }
-    else if (t.classList.contains('b-usemax')) {
-      l.rate = NaN;                 // back to the max sell rate basis
-      l.lastField = 'rate';
-      var card2 = cardFor(l.id);
-      if (card2) card2.querySelector('.f-rate').value = '';
     }
     else if (t.classList.contains('b-remove')) removeLine(l);
     else return;
@@ -671,13 +541,27 @@
 
   function onChange(e) {
     var t = e.target;
-    if (t.id === 'absOn') { st.absOn = t.checked; render(); }
+    if (t.id === 'absOn') {
+      // Master switch back on → auto again (the last line takes the rest).
+      st.absOn = t.checked;
+      if (st.absOn) st.absorber = null;
+      render();
+      return;
+    }
+    if (t.classList && t.classList.contains('f-absorb')) {
+      // Ticking a line is a manual pick — it turns auto-adjust off and that line takes the
+      // rest. Unticking leaves nobody absorbing (the variance shows, exactly as before).
+      var l = lineOf(t);
+      if (!l) return;
+      st.absOn = false;
+      st.absorber = t.checked ? l.id : 'none';
+      render();
+    }
   }
 
   function resetAll() {
     $('lines').innerHTML = '';
     st.lines = [];
-    st.sug = { line: null, items: [], idx: 0 };
     st.mode = 'nonrev';
     st.typed = null;
     st.absorber = null;
@@ -730,8 +614,6 @@
     document.addEventListener('input', onInput);
     document.addEventListener('change', onChange);
     document.addEventListener('click', onClick);
-    document.addEventListener('mousedown', onMouseDown);
-    document.addEventListener('keydown', onKeyDown);
     document.addEventListener('focusin', onFocusIn);
     document.addEventListener('focusout', onFocusOut);
     render();

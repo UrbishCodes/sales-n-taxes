@@ -1,8 +1,8 @@
 /* FanumTaxxed — side calculator (FNT-991ES PLUS style).
  * Instant keys (pointerdown, no debounce, no click delay), live preview before "=",
  * cursor editing with four separate replay buttons, VAT keys that remember which VAT
- * space the shown number is in, persistent per-device history with per-record delete,
- * distinct key sounds (ON by default) and spoken narration (OFF by default).
+ * space the shown number is in, persistent per-device history with per-record copy and
+ * delete, distinct key sounds (ON by default) and spoken narration (OFF by default).
  */
 (function () {
   'use strict';
@@ -205,10 +205,54 @@
           '<span class="he">' + esc(prettyExpr(h.e)) + '</span>' +
           '<b>= ' + nfCalc.format(h.r) + '</b>' +
         '</button>' +
+        '<button type="button" class="hist-copy" data-i="' + i + '" title="Copy this result to the clipboard" aria-label="Copy result ' + esc(String(h.r)) + ' to the clipboard">' +
+          '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><rect x="9" y="9" width="11" height="11"/><path d="M5 15H4V4h11v1"/></svg>' +
+        '</button>' +
         '<button type="button" class="hist-del" data-i="' + i + '" title="Delete this entry">✕</button>' +
       '</div>';
     });
     histEl.innerHTML = html;
+  }
+
+  // The plain, paste-anywhere form of a history result (what the LCD shows, no separators).
+  function histNum(h) { return String(Number(h.r.toFixed(4))); }
+
+  // Copy a history result to the clipboard. Read-only for the calculator state.
+  function copyHistNum(h, btn) {
+    var text = histNum(h);
+    function done(ok) {
+      if (ok) {
+        toast('Copied ' + text + ' to the clipboard.');
+        snd('chime');
+        if (btn) {
+          btn.classList.add('ok');
+          setTimeout(function () { btn.classList.remove('ok'); }, 700);
+        }
+      } else {
+        toast('Copy failed — long-press the result and copy it manually.');
+        snd('err');
+      }
+    }
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-100px';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, text.length);
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+      ta.remove();
+      done(ok);
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, fallback);
+    } else {
+      fallback();
+    }
   }
 
   function pushHist(exprStr, v) {
@@ -373,7 +417,7 @@
 
   function onKeyDoc(e) {
     if (!panel || panel.hidden) return;
-    if (e.target.closest && (e.target.closest('input, textarea, select, .suggest, .b-absorb'))) return;
+    if (e.target.closest && (e.target.closest('input, textarea, select, .suggest, .absorb-check'))) return;
     var k = null;
     if (/^[0-9]$/.test(e.key)) k = e.key;
     else if (e.key === '.') k = '.';
@@ -432,6 +476,12 @@
   }
 
   function onHistClick(e) {
+    var cp = e.target.closest('.hist-copy');
+    if (cp) {
+      var h = C.hist[Number(cp.dataset.i)];
+      if (h) copyHistNum(h, cp);
+      return;
+    }
     var del = e.target.closest('.hist-del');
     if (del) {
       C.hist.splice(Number(del.dataset.i), 1);

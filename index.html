@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="color-scheme" content="light" />
   <meta name="theme-color" content="#F7EFD9" />
-  <meta name="description" content="FanumTaxxed — counter sales with a restored auto-adjust engine: one line takes the rest, typed counts and rates are never reverted. VAT in or out, item list from the stock summary, FANUM-991ES PLUS shop calculator. Works offline." />
+  <meta name="description" content="FanumTaxxed — counter sales with a restored auto-adjust engine: the last line takes the rest, typed counts and rates are never reverted. VAT in or out, PCS / KG / DOZEN lines, FANUM-991ES PLUS shop calculator with per-line copyable history. Works offline." />
   <title>FanumTaxxed — Sales, VAT &amp; Shop Calculator</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect x=%228%22 y=%224%22 width=%2284%22 height=%2292%22 rx=%2214%22 fill=%22%2314120b%22/><rect x=%2214%22 y=%2210%22 width=%2272%22 height=%2230%22 rx=%226%22 fill=%22%23cbd5bc%22/><text x=%2250%22 y=%2278%22 font-size=%2240%22 font-family=%22monospace%22 font-weight=%22bold%22 fill=%22%23ffd23f%22 text-anchor=%22middle%22>F</text></svg>" />
   <link rel="stylesheet" href="style.css" />
@@ -42,10 +42,10 @@
         <div class="absorb-row">
           <label class="absorb-switch">
             <input type="checkbox" id="absOn" checked />
-            <span>Auto-adjust — one line takes the rest</span>
+            <span>Auto-adjust — the last line takes the rest</span>
           </label>
         </div>
-        <p class="hint" id="itemsHint">Type the count or the rate. The box you type in is never overwritten; the other one follows to keep the bill exact.</p>
+        <p class="hint" id="itemsHint">Auto-adjust is on — the last line takes the rest of the total. Type the count or the rate; the box you type in is never overwritten. Tick a line’s “takes the rest” box to choose yourself (that turns auto off).</p>
         <div id="lines"></div>
         <button type="button" class="nb-btn b-white wide" id="addLine">+ ADD ITEM</button>
       </section>
@@ -188,17 +188,16 @@
   <template id="lineTpl">
     <article class="line">
       <div class="line-head">
-        <button type="button" class="b-absorb" aria-pressed="false" title="Let this line take the rest of the total">TAKES THE REST</button>
+        <span class="line-tag">ITEM 1</span>
+        <label class="absorb-check" title="Let this line take the rest of the total">
+          <input type="checkbox" class="f-absorb" />
+          <span class="cbox" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="square" stroke-linejoin="miter"><path d="M20 6 9 17l-5-5"/></svg>
+          </span>
+          <span class="albl">TAKES THE REST</span>
+        </label>
         <button type="button" class="link b-remove">REMOVE</button>
       </div>
-
-      <div class="field name-box">
-        <span>ITEM NAME <span class="nb-badge auto">OPTIONAL</span></span>
-        <input class="f-name" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
-               placeholder="Type e.g. mobile, glass, sticker" role="combobox" aria-expanded="false" aria-autocomplete="list" />
-        <div class="suggest" role="listbox" hidden></div>
-      </div>
-      <p class="stock" hidden></p>
 
       <div class="field">
         <span>UNIT SOLD</span>
@@ -220,20 +219,8 @@
           <input class="f-rate" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" />
         </label>
       </div>
-      <button type="button" class="b-usemax" hidden>USE MAX RATE AGAIN</button>
       <div class="stepper count-keys"></div>
       <div class="chips cands" hidden></div>
-
-      <div class="two">
-        <label class="field">
-          <span class="l-std">Max rate (NPR per pc)</span>
-          <input class="f-std" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" />
-        </label>
-        <label class="field">
-          <span>BUY COST (OPTIONAL)</span>
-          <input class="f-buy" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" />
-        </label>
-      </div>
 
       <p class="line-msg"></p>
     </article>

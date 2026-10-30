@@ -608,30 +608,78 @@ textarea {
 .line:last-of-type { margin-bottom: 16px; }
 .line-head {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 8px 10px;
   margin-bottom: 12px;
 }
 
-/* "takes the rest" tick — teal badge when this line absorbs */
-.b-absorb {
+/* automatic line label — ITEM n (no name box; the label follows the line's position) */
+.line-tag {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
   font-family: var(--font-heavy);
-  font-size: 8.5px;
+  font-size: 11px;
   letter-spacing: 0.07em;
-  border: 2px solid var(--nb-ink);
-  border-radius: 5px;
-  padding: 3px 7px;
-  background: #fff;
-  color: var(--nb-dim);
+  color: var(--nb-ink);
+  background: var(--nb-yellow);
+  border: 2.5px solid var(--nb-ink);
+  border-radius: 7px;
+  box-shadow: 2px 2px 0 var(--nb-ink);
+  padding: 4px 9px;
+}
+
+/* "takes the rest" — a real checkbox now: the whole label is the tap target
+   (the old mini chip was too small to hit on a phone) */
+.absorb-check {
+  position: relative;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 2px;
+  min-height: 40px;
   cursor: pointer;
-  white-space: nowrap;
-  transition: background 80ms ease, color 80ms ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  font-family: var(--font-heavy);
+  font-size: 9.5px;
+  letter-spacing: 0.07em;
+  color: var(--nb-dim);
+  transition: color 80ms ease;
 }
-.b-absorb.on {
-  background: var(--nb-teal);
+.absorb-check .cbox {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid var(--nb-ink);
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 2px 2px 0 var(--nb-ink);
   color: #fff;
+  transition: background 80ms ease;
 }
+.absorb-check .cbox svg {
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 80ms ease, transform 80ms ease;
+}
+.absorb-check input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+.absorb-check input:checked ~ .cbox { background: var(--nb-teal); }
+.absorb-check input:checked ~ .cbox svg { opacity: 1; transform: scale(1); }
+.absorb-check input:checked ~ .albl { color: var(--nb-teal); }
+.absorb-check input:focus-visible + .cbox { outline: 2px dashed var(--nb-ink); outline-offset: 3px; }
 
 /* small destructive button */
 .link {
@@ -664,14 +712,6 @@ textarea {
   box-shadow: 0 0 0 var(--nb-ink);
 }
 
-/* stock hint under the item name */
-.stock {
-  margin: -6px 0 10px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--nb-dim);
-}
-
 /* "AMOUNTS — LINKED" mini-heading inside each line */
 .section-label {
   margin: 14px 0 10px;
@@ -683,43 +723,6 @@ textarea {
   padding: 0 5px 1px 0;
   display: inline-block;
 }
-
-/* ── suggestions dropdown (stock list matches) ───────────────────────────── */
-.name-box { position: relative; }
-.suggest {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  margin-top: 4px;
-  background: #fff;
-  border: 3px solid var(--nb-ink);
-  border-radius: 10px;
-  box-shadow: 6px 6px 0 var(--nb-ink);
-  z-index: 6;
-  overflow: hidden;
-  max-height: 260px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-.sug {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  width: 100%;
-  border: 0;
-  border-bottom: 2px dashed var(--nb-dash);
-  background: #fff;
-  padding: 8px 12px;
-  cursor: pointer;
-  text-align: left;
-  font-family: var(--font-mono);
-}
-.sug:last-child { border-bottom: 0; }
-.sug strong { font-size: 12.5px; font-weight: 700; color: #1a1710; }
-.sug span { font-size: 10px; color: var(--nb-dim); }
-.sug.on, .sug:hover { background: #fff3c4; }
 
 /* ── stepper keys (±1 / ±10 / ±0.5 …) ───────────────────────────────────── */
 .stepper.count-keys {
@@ -788,26 +791,6 @@ textarea {
 .cand strong { font-size: 14px; font-weight: 700; white-space: nowrap; }
 .cand span, .cand small { font-size: 10.5px; color: var(--nb-hint); white-space: nowrap; }
 .cand.on { background: var(--nb-yellow); }
-
-/* "use max rate again" */
-.b-usemax {
-  border: 3px solid var(--nb-ink);
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: 3px 3px 0 var(--nb-ink);
-  font-family: var(--font-heavy);
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  color: var(--nb-ink);
-  padding: 8px 10px;
-  margin: 0 0 12px;
-  cursor: pointer;
-  transition: transform 60ms ease, box-shadow 60ms ease;
-}
-.b-usemax:active {
-  transform: translate(2px, 2px);
-  box-shadow: 0 0 0 var(--nb-ink);
-}
 
 /* per-line message */
 .line-msg {
@@ -1212,6 +1195,27 @@ textarea {
   white-space: nowrap;
 }
 .hist-pick b { font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* per-row copy: the result number only, paste-ready (no separators) */
+.hist-copy {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-right: 6px;
+  border: 2.5px solid #14120b;
+  border-radius: 6px;
+  background: #fff;
+  color: #14120b;
+  box-shadow: 2px 2px 0 #14120b;
+  cursor: pointer;
+  transition: transform 60ms ease, box-shadow 60ms ease, background 120ms ease, color 120ms ease;
+}
+.hist-copy:hover { background: #fff3c4; }
+.hist-copy:active { transform: translate(2px, 2px); box-shadow: 0 0 0 #14120b; }
+.hist-copy.ok { background: var(--nb-teal); color: #fff; }
 .hist-del {
   flex: none;
   align-self: center;
